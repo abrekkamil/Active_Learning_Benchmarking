@@ -1,0 +1,164 @@
+# Configuration for cold start strategy experiments
+
+# Base configuration
+base:
+  dataset: "coco"
+  data_dir: "/path/to/your/dataset"
+  dataset_name: "cold_start_benchmark"
+  
+  # Active learning parameters
+  query_size: 5
+  al_cycles: 5
+  epochs_per_cycle: 15
+  initial_training_epoch: 3
+  
+  # Fixed query strategy for cold start comparison
+  query_strategy: "uncertainty"
+  
+  # Model parameters
+  use_cuda: true
+  lr: 0.00125
+  momentum: 0.9
+  weight_decay: 0.0001
+  lr_steps: [30, 50]
+  
+  # Logging
+  use_wandb: true
+  wandb_project: "AL_cold_start_benchmark"
+  print_freq: 100
+  
+  # Technical settings
+  num_workers: 4
+  seed: 42
+  checkpoint_dir: "results/checkpoints"
+  results_dir: "results"
+
+# Cold start strategies to test
+cold_start_strategies:
+  random:
+    description: "Random sampling baseline"
+    parameters:
+      strategy: "random"
+  
+  simple_diversity:
+    description: "Simple diversity using image statistics"
+    parameters:
+      strategy: "simple_diversity"
+      feature_type: "statistical"
+  
+  diversity:
+    description: "Clustering-based diversity"
+    parameters:
+      strategy: "diversity"
+      feature_type: "deep"
+      model: "resnet18"
+  
+  entropy_uncertainty:
+    description: "Entropy-based uncertainty"
+    parameters:
+      strategy: "entropy_based_uncertainty"
+      entropy_bins: 32
+  
+  weak_supervision:
+    description: "Weak supervision with heuristics"
+    parameters:
+      strategy: "weak_supervision"
+      heuristics: ["edge_density", "texture_complexity", "contrast"]
+  
+  self_supervised:
+    description: "Self-supervised clustering"
+    parameters:
+      strategy: "self_supervised"
+      model: "resnet18_swsl"
+
+# Experimental variations
+experiments:
+  # Vary initial labeled percentage
+  initial_labeled_variation:
+    description: "Test different initial labeling budgets"
+    variations:
+      - initial_labeled: 0.05  # 5%
+      - initial_labeled: 0.10  # 10%
+      - initial_labeled: 0.20  # 20%
+      - initial_labeled: 0.30  # 30%
+  
+  # Vary query size
+  query_size_variation:
+    description: "Test different query sizes"
+    variations:
+      - query_size: 3
+      - query_size: 5
+      - query_size: 10
+      - query_size: 15
+  
+  # Vary dataset size
+  dataset_size_variation:
+    description: "Test on different dataset sizes"
+    variations:
+      - max_samples: 1000
+      - max_samples: 5000
+      - max_samples: 10000
+
+# Combined experiments
+combined_experiments:
+  - name: "full_cold_start_benchmark"
+    description: "Benchmark all cold start strategies with 10% initial labeling"
+    parameters:
+      initial_labeled: 0.10
+      query_size: 5
+    strategies: ["random", "simple_diversity", "diversity", 
+                "entropy_uncertainty", "weak_supervision", "self_supervised"]
+  
+  - name: "budget_study"
+    description: "Study effect of initial budget on strategy performance"
+    parameters:
+      query_size: 5
+    variations:
+      - initial_labeled: 0.05
+      - initial_labeled: 0.10
+      - initial_labeled: 0.20
+    strategies: ["random", "diversity", "weak_supervision"]
+  
+  - name: "query_size_study"
+    description: "Study effect of query size"
+    parameters:
+      initial_labeled: 0.10
+    variations:
+      - query_size: 3
+      - query_size: 5
+      - query_size: 10
+    strategies: ["random", "diversity", "hybrid"]
+
+# Performance thresholds
+performance_thresholds:
+  excellent: 0.6
+  good: 0.5
+  acceptable: 0.3
+  poor: 0.1
+
+# Resource constraints
+resources:
+  max_gpu_memory_gb: 24
+  max_runtime_hours: 48
+  max_concurrent_experiments: 2
+
+# Evaluation metrics
+evaluation:
+  primary_metric: "AP@[IoU=0.50:0.95]"
+  secondary_metrics:
+    - "AP50"
+    - "AP75"
+    - "AR@100"
+  efficiency_metrics:
+    - "ap_gain_per_sample"
+    - "training_time_per_epoch"
+    - "query_efficiency"
+
+# Output configuration
+output:
+  save_checkpoints: true
+  save_metrics: true
+  save_plots: true
+  save_logs: true
+  wandb_logging: true
+  generate_report: true

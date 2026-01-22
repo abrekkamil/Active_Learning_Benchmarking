@@ -1,0 +1,237 @@
+# Configuration for query strategy experiments
+
+# Base configuration
+base:
+  dataset: "coco"
+  data_dir: "/path/to/your/dataset"
+  dataset_name: "query_strategy_benchmark"
+  
+  # Active learning parameters
+  initial_labeled: 0.10  # 10% initially labeled
+  al_cycles: 5
+  epochs_per_cycle: 15
+  initial_training_epoch: 3
+  
+  # Fixed cold start strategy for query strategy comparison
+  cold_start_strategy: "random"
+  
+  # Model parameters
+  use_cuda: true
+  lr: 0.00125
+  momentum: 0.9
+  weight_decay: 0.0001
+  lr_steps: [30, 50]
+  
+  # Logging
+  use_wandb: true
+  wandb_project: "AL_query_strategy_benchmark"
+  print_freq: 100
+  
+  # Technical settings
+  num_workers: 4
+  seed: 42
+  checkpoint_dir: "results/checkpoints"
+  results_dir: "results"
+
+# Query strategies to test
+query_strategies:
+  uncertainty:
+    description: "Uncertainty sampling"
+    parameters:
+      strategy: "uncertainty"
+      uncertainty_measure: "entropy"
+  
+  diversity:
+    description: "Diversity sampling (CoreSet)"
+    parameters:
+      strategy: "diversity"
+      distance_metric: "euclidean"
+  
+  hybrid:
+    description: "Hybrid uncertainty-diversity"
+    parameters:
+      strategy: "hybrid"
+      alpha: 0.5  # Weight for uncertainty vs diversity
+      uncertainty_weight: 0.5
+      diversity_weight: 0.5
+  
+  k_center:
+    description: "K-center greedy algorithm"
+    parameters:
+      strategy: "k_center"
+      distance_metric: "euclidean"
+  
+  feature:
+    description: "Feature analysis with clustering"
+    parameters:
+      strategy: "feature"
+      clustering_method: "kmeans"
+
+# Strategy-specific parameters
+strategy_parameters:
+  uncertainty:
+    top_k: true
+    uncertainty_threshold: 0.8
+  
+  diversity:
+    use_features: true
+    feature_type: "deep"
+    model: "resnet18"
+  
+  hybrid:
+    uncertainty_measure: "entropy"
+    diversity_measure: "distance_to_centroid"
+    normalization: "minmax"
+  
+  k_center:
+    initialization: "random"
+    max_iterations: 100
+  
+  feature:
+    feature_type: "deep"
+    n_clusters: null  # Will be set to query_size
+    use_pca: true
+    pca_components: 50
+
+# Experimental variations
+experiments:
+  # Vary query size
+  query_size_variation:
+    description: "Test different query sizes"
+    variations:
+      - query_size: 3
+      - query_size: 5
+      - query_size: 10
+      - query_size: 20
+  
+  # Vary AL cycles
+  al_cycles_variation:
+    description: "Test different number of AL cycles"
+    variations:
+      - al_cycles: 3
+      - al_cycles: 5
+      - al_cycles: 10
+      - al_cycles: 15
+  
+  # Vary cold start strategy
+  cold_start_variation:
+    description: "Test with different cold start strategies"
+    variations:
+      - cold_start_strategy: "random"
+      - cold_start_strategy: "diversity"
+      - cold_start_strategy: "weak_supervision"
+  
+  # Vary hybrid parameters
+  hybrid_parameter_variation:
+    description: "Test different alpha values for hybrid strategy"
+    variations:
+      - alpha: 0.3  # More weight on diversity
+      - alpha: 0.5  # Balanced
+      - alpha: 0.7  # More weight on uncertainty
+      - alpha: 0.9  # Mostly uncertainty
+
+# Combined experiments
+combined_experiments:
+  - name: "full_query_strategy_benchmark"
+    description: "Benchmark all query strategies with query size 5"
+    parameters:
+      query_size: 5
+      al_cycles: 5
+    strategies: ["uncertainty", "diversity", "hybrid", "k_center", "feature"]
+  
+  - name: "query_size_study"
+    description: "Study effect of query size on different strategies"
+    parameters:
+      al_cycles: 5
+    variations:
+      - query_size: 3
+      - query_size: 5
+      - query_size: 10
+    strategies: ["uncertainty", "diversity", "hybrid"]
+  
+  - name: "hybrid_parameter_study"
+    description: "Find optimal alpha for hybrid strategy"
+    strategy: "hybrid"
+    variations:
+      - alpha: 0.1
+      - alpha: 0.3
+      - alpha: 0.5
+      - alpha: 0.7
+      - alpha: 0.9
+    parameters:
+      query_size: 5
+      al_cycles: 5
+  
+  - name: "strategy_combination_study"
+    description: "Test different cold start + query strategy combinations"
+    cold_start_strategies: ["random", "diversity"]
+    query_strategies: ["uncertainty", "diversity", "hybrid"]
+    parameters:
+      initial_labeled: 0.10
+      query_size: 5
+      al_cycles: 5
+
+# Evaluation metrics specific to query strategies
+evaluation:
+  primary_metrics:
+    - "AP@[IoU=0.50:0.95]"
+    - "query_efficiency"
+  
+  strategy_specific_metrics:
+    uncertainty:
+      - "average_uncertainty"
+      - "uncertainty_variance"
+    
+    diversity:
+      - "average_pairwise_distance"
+      - "coverage_ratio"
+    
+    hybrid:
+      - "uncertainty_component"
+      - "diversity_component"
+    
+    k_center:
+      - "radius_coverage"
+      - "center_distances"
+    
+    feature:
+      - "cluster_quality"
+      - "feature_variance"
+  
+  efficiency_metrics:
+    - "ap_gain_per_cycle"
+    - "time_per_query"
+    - "memory_usage"
+    - "convergence_rate"
+  
+  statistical_tests:
+    - "paired_t_test"
+    - "wilcoxon_signed_rank"
+    - "friedman_test"
+
+# Performance analysis
+performance_analysis:
+  convergence_analysis: true
+  statistical_significance: true
+  confidence_intervals: true
+  error_bars: true
+  multiple_comparisons_correction: "bonferroni"
+
+# Visualization settings
+visualization:
+  plot_learning_curves: true
+  plot_strategy_comparison: true
+  plot_query_efficiency: true
+  plot_uncertainty_distribution: true
+  plot_diversity_metrics: true
+  color_palette: "Set2"
+  figure_size: [12, 8]
+  dpi: 300
+
+# Resource management
+resources:
+  max_gpu_memory_gb: 16
+  max_cpu_cores: 8
+  max_runtime_hours: 24
+  checkpoint_frequency: 5  # Save checkpoint every 5 epochs
+  early_stopping_patience: 10

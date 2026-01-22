@@ -1,0 +1,154 @@
+# Configuration for active learning strategies
+
+# Available cold start strategies
+cold_start_strategies:
+  - name: "random"
+    description: "Random sampling (baseline)"
+    parameters:
+      seed: 42
+    
+  - name: "simple_diversity"
+    description: "Simple diversity using image statistics"
+    parameters:
+      feature_type: "statistical"
+      n_clusters: 10
+      random_state: 42
+    
+  - name: "diversity"
+    description: "Clustering-based diversity using deep features"
+    parameters:
+      feature_type: "deep"
+      model: "resnet18"
+      n_clusters: 10
+      random_state: 42
+    
+  - name: "entropy_based_uncertainty"
+    description: "Uncertainty sampling using image entropy"
+    parameters:
+      entropy_bins: 32
+    
+  - name: "uncertainty_weak"
+    description: "Uncertainty with weak model"
+    parameters:
+      weak_model: "resnet18"
+      pretrained: true
+    
+  - name: "weak_supervision"
+    description: "Weak supervision using heuristic rules"
+    parameters:
+      heuristics: ["edge_density", "texture_complexity", "color_diversity", "contrast"]
+    
+  - name: "self_supervised"
+    description: "Self-supervised feature clustering"
+    parameters:
+      model: "resnet18_swsl"
+      n_clusters: 10
+      random_state: 42
+
+# Available query strategies
+query_strategies:
+  - name: "uncertainty"
+    description: "Select samples with highest uncertainty"
+    parameters:
+      uncertainty_measure: "entropy"
+      top_k: true
+    
+  - name: "diversity"
+    description: "Select diverse samples using CoreSet"
+    parameters:
+      distance_metric: "euclidean"
+      selection_method: "greedy"
+    
+  - name: "hybrid"
+    description: "Combine uncertainty and diversity"
+    parameters:
+      alpha: 0.5
+      uncertainty_weight: 0.5
+      diversity_weight: 0.5
+    
+  - name: "k_center"
+    description: "K-center greedy algorithm for diversity"
+    parameters:
+      distance_metric: "euclidean"
+      initial_selection: "random"
+    
+  - name: "feature"
+    description: "Feature analysis with clustering"
+    parameters:
+      feature_type: "deep"
+      clustering_method: "kmeans"
+      n_clusters: null  # same as query_size
+
+# Strategy combinations for benchmarking
+strategy_combinations:
+  # Cold start benchmarks
+  cold_start_benchmark:
+    query_strategy: "uncertainty"  # Fixed query strategy
+    cold_start_strategies: ["random", "simple_diversity", "diversity", 
+                           "entropy_based_uncertainty", "weak_supervision", 
+                           "self_supervised"]
+  
+  # Query strategy benchmarks
+  query_strategy_benchmark:
+    cold_start_strategy: "random"  # Fixed cold start
+    query_strategies: ["uncertainty", "diversity", "hybrid", "k_center", "feature"]
+  
+  # Full grid search
+  full_grid:
+    cold_start_strategies: ["random", "diversity"]
+    query_strategies: ["uncertainty", "diversity", "hybrid"]
+    parameters:
+      initial_labeled: [0.05, 0.1, 0.2]
+      query_size: [5, 10, 20]
+
+# Experimental parameters
+experiment_parameters:
+  # Dataset sizes
+  dataset_sizes:
+    small: 1000
+    medium: 5000
+    large: 10000
+  
+  # Budget constraints
+  budget_constraints:
+    - label_budget: 0.1  # 10% of dataset
+      query_size: 5
+      al_cycles: 5
+    
+    - label_budget: 0.2  # 20% of dataset
+      query_size: 10
+      al_cycles: 5
+    
+    - label_budget: 0.3  # 30% of dataset
+      query_size: 15
+      al_cycles: 5
+  
+  # Model training parameters
+  training:
+    batch_size: 8
+    num_workers: 4
+    learning_rate: 0.00125
+    momentum: 0.9
+    weight_decay: 0.0001
+    lr_schedule: [30, 50]
+  
+  # Evaluation metrics
+  evaluation_metrics:
+    - "bbox_AP@[IoU=0.50:0.95]"
+    - "bbox_AP50"
+    - "bbox_AP75"
+    - "segm_AP@[IoU=0.50:0.95]"
+    - "segm_AP50"
+    - "segm_AP75"
+
+# Performance thresholds
+performance_thresholds:
+  good_performance: 0.5
+  acceptable_performance: 0.3
+  poor_performance: 0.1
+
+# Resource constraints
+resource_constraints:
+  max_gpu_memory: 24  # GB
+  max_training_time: 24  # hours
+  max_epochs: 100
