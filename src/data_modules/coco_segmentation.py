@@ -2,7 +2,7 @@ import torch
 import numpy as np
 from torchvision import transforms
 from PIL import Image
-from coco_detection import CocoDetectionDataset
+from .coco_detection import CocoDetectionDataset
 
 
 class CocoSemanticSegmentationDataset(CocoDetectionDataset):
@@ -26,10 +26,19 @@ class CocoSemanticSegmentationDataset(CocoDetectionDataset):
         target = self._load_target(img_id)
 
         if len(target["masks"]) == 0:
-            mask = torch.zeros((self.img_size, self.img_size), dtype=torch.long)
+            mask = torch.zeros(
+                (self.img_size, self.img_size), dtype=torch.long
+            )
         else:
-            merged = torch.max(target["masks"].float(), dim=0)[0]
-            merged = self.mask_transform(merged.unsqueeze(0))
-            mask = (merged > 0.5).long().squeeze(0)
+            masks = target["masks"].float()  # [N, H, W]
+            merged = torch.max(masks, dim=0, keepdim=True)[0]  # [1, H, W]
+
+            merged = F.interpolate(
+                merged.unsqueeze(0),  # [1, 1, H, W]
+                size=(self.img_size, self.img_size),
+                mode="nearest",
+            ).squeeze(0).squeeze(0)
+
+            mask = (merged > 0.5).long()
 
         return image, mask

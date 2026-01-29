@@ -12,7 +12,7 @@ from .cold_start_strategies import ColdStartStrategies
 from .query_strategies import QueryStrategies
 from .models import MaskRCNNModel
 from .utils import setup_logging, save_checkpoint, load_checkpoint
-from datasets.factory import load_dataset
+from data_modules.factory import load_dataset
 
 
 class ActiveLearningSystem:
