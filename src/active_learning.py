@@ -136,7 +136,7 @@ class ActiveLearningSystem:
             )
             
             # Evaluate
-            eval_metrics = self.model.evaluate(self.dataset_val)
+            eval_metrics = self.model.eval(self.dataset_val)
             
             epoch_time = time.time() - epoch_start
             
