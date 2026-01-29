@@ -130,17 +130,46 @@ class WeakModel:
 # ============================================================
 
 class FeatureExtractor:
+    """
+    Extract deep features using pretrained CNNs.
+    """
+
     def __init__(self, model_name="resnet18"):
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        weights = ResNet18_Weights.DEFAULT
 
-        model = models.resnet18(weights=weights)
-        self.model = nn.Sequential(*list(model.children())[:-1]).to(self.device).eval()
+        if model_name == "resnet18":
+            model = models.resnet18(weights=ResNet18_Weights.DEFAULT)
+            self.out_dim = 512
+        elif model_name == "resnet50":
+            model = models.resnet50(weights=ResNet50_Weights.DEFAULT)
+            self.out_dim = 2048
+        else:
+            raise ValueError(f"Unsupported model: {model_name}")
 
-    def extract(self, images: List[torch.Tensor]):
-        feats = []
+        # remove classifier
+        self.model = nn.Sequential(*list(model.children())[:-1])
+        self.model.to(self.device)
+        self.model.eval()
+
+    def extract(self, images):
+        features = []
 
         with torch.no_grad():
-            for img in images:
-                if img.shape[0] == 1:
-                    img = img.repeat(3, 1, 1)
+            for image in images:
+                if image.dim() == 3:
+                    image = image.unsqueeze(0)
+
+                if image.shape[1] == 1:
+                    image = image.repeat(1, 3, 1, 1)
+
+                image = F.interpolate(
+                    image, size=(224, 224),
+                    mode="bilinear", align_corners=False
+                )
+
+                image = image.to(self.device)
+                feat = self.model(image)      # (1, C, 1, 1)
+                feat = feat.view(-1).cpu()    # (C,)
+                features.append(feat)
+
+        return torch.stack(features)
