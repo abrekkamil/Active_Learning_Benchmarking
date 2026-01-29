@@ -10,9 +10,9 @@ from typing import List, Tuple, Dict, Any, Optional
 
 from .cold_start_strategies import ColdStartStrategies
 from .query_strategies import QueryStrategies
-from .models import MaskRCNNModel
+from .models import MaskRCNNModel, UNetModel
 from .utils import setup_logging, save_checkpoint, load_checkpoint
-from data_modules.factory import load_dataset
+from .data_modules.factory import load_dataset
 
 
 class ActiveLearningSystem:
@@ -45,11 +45,12 @@ class ActiveLearningSystem:
         self.query_strategy = QueryStrategies(config)
         
         # Initialize model
-        self.model = MaskRCNNModel(
-            num_classes=self.num_classes,
-            device=self.device,
-            config=config
-        )
+        if config.task == "detection":
+            self.model = MaskRCNNModel(...)
+        elif config.task == "segmentation":
+            self.model = UNetModel(...)
+        else:
+            raise ValueError("Unknown task")
         
         # Initialize pools
         self._init_pools()

@@ -14,6 +14,121 @@ import time
 from torchvision.models import resnet18, ResNet18_Weights, resnet50, ResNet50_Weights
 
 
+class UNetModel:
+    """
+    Wrapper for U-Net semantic segmentation.
+    """
+
+    def __init__(self, num_classes, device, config):
+        self.num_classes = num_classes
+        self.device = device
+        self.config = config
+
+        from .networks.unet import UNetExact
+
+        self.model = UNetExact(
+            in_channels=3,
+            out_channels=num_classes,
+            norm=getattr(config, "unet_norm", "bn"),
+        ).to(device)
+
+        self.optimizer = torch.optim.Adam(
+            self.model.parameters(),
+            lr=config.lr,
+            weight_decay=config.weight_decay,
+        )
+
+        self.criterion = nn.CrossEntropyLoss()
+
+    def train_epoch(self, dataset, epoch):
+        self.model.train()
+
+        loader = DataLoader(
+            dataset,
+            batch_size=config.batch_size,
+            shuffle=True,
+            num_workers=config.num_workers,
+        )
+
+        total_loss = 0.0
+        start = time.time()
+
+        for images, masks in loader:
+            images = images.to(self.device)
+            masks = masks.to(self.device)
+
+            self.optimizer.zero_grad()
+            logits = self.model(images)
+            loss = self.criterion(logits, masks)
+            loss.backward()
+            self.optimizer.step()
+
+            total_loss += loss.item()
+
+        return {
+            "train_loss": total_loss / len(loader),
+            "training_time": time.time() - start,
+        }
+
+    def evaluate(self, dataset):
+        self.model.eval()
+
+        loader = DataLoader(
+            dataset,
+            batch_size=1,
+            shuffle=False,
+            num_workers=self.config.num_workers,
+        )
+
+        total_iou = 0.0
+        count = 0
+
+        with torch.no_grad():
+            for images, masks in loader:
+                images = images.to(self.device)
+                masks = masks.to(self.device)
+
+                logits = self.model(images)
+                preds = torch.argmax(logits, dim=1)
+
+                intersection = ((preds == 1) & (masks == 1)).sum().item()
+                union = ((preds == 1) | (masks == 1)).sum().item()
+
+                if union > 0:
+                    total_iou += intersection / union
+                    count += 1
+
+        return {"mean_iou": total_iou / max(count, 1)}
+
+    def predict(self, images):
+        self.model.eval()
+        with torch.no_grad():
+            images = torch.stack(images).to(self.device)
+            logits = self.model(images)
+            return torch.argmax(logits, dim=1)
+
+    def get_uncertainty(self, images):
+        """
+        Pixel entropy averaged over image.
+        """
+        self.model.eval()
+        uncertainties = []
+
+        with torch.no_grad():
+            for img in images:
+                img = img.unsqueeze(0).to(self.device)
+                logits = self.model(img)
+                probs = F.softmax(logits, dim=1)
+
+                entropy = -torch.sum(
+                    probs * torch.log(probs + 1e-8),
+                    dim=1
+                ).mean()
+
+                uncertainties.append(entropy.item())
+
+        return np.array(uncertainties)
+
 class MaskRCNNModel:
     """
     Wrapper for Mask R-CNN model with training and evaluation capabilities.
