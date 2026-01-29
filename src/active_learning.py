@@ -12,6 +12,8 @@ from .cold_start_strategies import ColdStartStrategies
 from .query_strategies import QueryStrategies
 from .models import MaskRCNNModel
 from .utils import setup_logging, save_checkpoint, load_checkpoint
+from datasets.factory import load_dataset
+
 
 class ActiveLearningSystem:
     """
@@ -34,7 +36,9 @@ class ActiveLearningSystem:
         self.logger = setup_logging(config.dataset_name)
         
         # Load datasets
-        self._load_datasets()
+        self.num_classes = config.num_classes
+        self.dataset_train = load_dataset(config, split="train")
+        self.dataset_val   = load_dataset(config, split="val")
         
         # Initialize strategies
         self.cold_start = ColdStartStrategies(self.dataset_train, config)

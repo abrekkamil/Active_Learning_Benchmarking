@@ -1,8 +1,10 @@
 # Base configuration for active learning experiments
 
-dataset: "coco"
+dataset: "DeepCrack"
+dataset_type: "deepcrack"
 data_dir: "/path/to/your/dataset"
 dataset_name: "al_experiment"
+num_classes : 2  # Including background
 
 # Active learning parameters
 initial_labeled: 0.1  # 10% initially labeled
