@@ -67,7 +67,7 @@ class UNetModel:
         }
 
     # ---------------- EVAL ----------------
-    def evaluate(self, dataset):
+    def eval(self, dataset):
         self.model.eval()
 
         loader = DataLoader(
@@ -177,7 +177,7 @@ class MaskRCNNModel:
         return {"training_time": time.time() - start}
 
     # ---------------- EVAL ----------------
-    def evaluate(self, dataset):
+    def eval(self, dataset):
         import pytorch_mask_rcnn as pmr
         from types import SimpleNamespace
 
