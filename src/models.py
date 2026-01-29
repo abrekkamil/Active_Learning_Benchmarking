@@ -24,7 +24,7 @@ class UNetModel:
         self.device = device
         self.config = config
 
-        from .networks.unet import UNetExact
+        from networks.unet import UNetExact
 
         self.model = UNetExact(
             in_channels=3,
@@ -299,8 +299,6 @@ class MaskRCNNModel:
         predictions = []
         with torch.no_grad():
             for image in images:
-                if len(image.shape) == 3:
-                    image = image.unsqueeze(0)
                 
                 image = image.to(self.device)
                 output = self.model(image)
