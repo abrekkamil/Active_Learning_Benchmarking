@@ -13,6 +13,7 @@ A comprehensive benchmark for evaluating active learning strategies with Mask R-
 ## Installation
 
 ```bash
-git clone https://github.com/yourusername/active_learning_benchmark.git
+git clone https://github.com/abrekkamil/active_learning_benchmark.git
 cd active_learning_benchmark
 pip install -r requirements.txt
+python test_all_modules.py
