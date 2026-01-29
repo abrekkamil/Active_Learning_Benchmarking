@@ -46,9 +46,9 @@ class ActiveLearningSystem:
         
         # Initialize model
         if config.task == "detection":
-            self.model = MaskRCNNModel(...)
+            self.model = MaskRCNNModel(config.num_classes, device, config)
         elif config.task == "segmentation":
-            self.model = UNetModel(...)
+            self.model = UNetModel(config.num_classes, self.device,config)
         else:
             raise ValueError("Unknown task")
         
