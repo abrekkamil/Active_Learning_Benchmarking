@@ -69,6 +69,8 @@ results/logs/
 *.ckpt
 data/
 datasets/
+!src/datasets/
+!src/datasets/**
 wandb/
 
 # Environment
