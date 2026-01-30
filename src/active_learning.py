@@ -69,7 +69,8 @@ class ActiveLearningSystem:
         print(f"  Device: {self.device}")
         print(f"  Cold Start Strategy: {config.cold_start_strategy}")
         print(f"  Query Strategy: {config.query_strategy}")
-        print(f"  Initial labeled: {len(self.labeled_indices)} samples")
+        if not skip_cold_start:
+            print(f"  Initial labeled: {len(self.labeled_indices)} samples")
     
     def _load_datasets(self):
         """Load training and validation datasets."""
