@@ -17,6 +17,7 @@ initial_training_epoch: 3  # Initial training epochs
 # Strategies
 cold_start_strategy: "random"
 query_strategy: "uncertainty"
+task: "segmentation"
 
 # Model parameters
 use_cuda: true

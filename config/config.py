@@ -31,6 +31,7 @@ class ActiveLearningConfig:
     # Strategy selection
     cold_start_strategy: str = "random"
     query_strategy: str = "uncertainty"
+    task: str = "detection"  # or "segmentation"
     
     # Logging
     use_wandb: bool = True
