@@ -12,7 +12,8 @@ class ColdStartStrategies:
     """Implement various cold start initialization strategies."""
     
     def __init__(self, dataset, config):
-        self.dataset = dataset
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.dataset_train = dataset
         self.config = config
     
     def apply(self, strategy_name: str, n_samples: int, all_indices: List[int]) -> List[int]:
