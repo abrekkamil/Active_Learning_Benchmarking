@@ -258,3 +258,11 @@ class ActiveLearningSystem:
                 **train_metrics,
                 **eval_metrics
             })
+
+    def save_results(self):
+        results_path = os.path.join(
+            self.config.results_dir,
+            f"{self.config.cold_start_strategy}_{self.config.query_strategy}.json"
+        )
+        with open(results_path, "w") as f:
+            json.dump(self.history, f, indent=2)
