@@ -46,7 +46,7 @@ class ActiveLearningSystem:
         
         # Initialize model
         if config.task == "detection":
-            self.model = MaskRCNNModel(config.num_classes, device, config)
+            self.model = MaskRCNNModel(config.num_classes, self.device, config)
         elif config.task == "segmentation":
             self.model = UNetModel(config.num_classes, self.device,config)
         else:
@@ -57,9 +57,9 @@ class ActiveLearningSystem:
         
         # Tracking
         self.cycle = 0
-        self.best_ap = 0.0
+        self.best_score = 0.0
         self.history = {
-            'val_ap': [],
+            'val_score': [],
             'labeled_count': [],
             'cycle_metrics': []
         }
@@ -151,14 +151,14 @@ class ActiveLearningSystem:
             cycle_metrics.append(eval_metrics)
             
             # Save checkpoints
-            current_ap = eval_metrics.get("bbox_AP@[IoU=0.50:0.95]", 0)
-            if current_ap > self.best_ap:
-                self.best_ap = current_ap
+            current_score = eval_metrics["dice"]  # or "mean_iou"
+            if current_score > self.best_score:
+                self.best_score = current_score
                 save_checkpoint(
                     model=self.model,
                     cycle=self.cycle,
                     epoch=epoch,
-                    ap=current_ap,
+                    score=current_score,
                     is_best=True,
                     config=self.config
                 )
@@ -236,28 +236,30 @@ class ActiveLearningSystem:
         return all_metrics
     
     def _log_metrics(self, epoch, train_time, train_metrics, eval_metrics):
-        """Log training and evaluation metrics."""
-        # Update history
-        current_ap = eval_metrics.get("bbox_AP@[IoU=0.50:0.95]", 0)
-        self.history['val_ap'].append(current_ap)
-        self.history['labeled_count'].append(len(self.labeled_indices))
-        
-        # Log to console
-        print(f"Epoch {epoch + 1}:")
-        print(f"  Training time: {train_time:.1f}s")
-        print(f"  AP@[IoU=0.50:0.95]: {current_ap:.4f}")
-        
-        # Log to WandB if enabled
+        self.history.setdefault("train_loss", []).append(train_metrics["train_loss"])
+        self.history.setdefault("val_dice", []).append(eval_metrics["dice"])
+        self.history.setdefault("val_iou", []).append(eval_metrics["mean_iou"])
+        self.history.setdefault("labeled_count", []).append(len(self.labeled_indices))
+
+        self.logger.info(
+            f"Epoch {epoch+1} | "
+            f"Loss: {train_metrics['train_loss']:.4f} | "
+            f"Dice: {eval_metrics['dice']:.4f} | "
+            f"IoU: {eval_metrics['mean_iou']:.4f} | "
+            f"Labeled: {len(self.labeled_indices)}"
+        )
+
         if self.config.use_wandb:
-            import wandb
-            wandb.log({
-                "cycle": self.cycle,
-                "epoch": epoch + 1,
-                "train_time": train_time,
-                "labeled_count": len(self.labeled_indices),
-                **train_metrics,
-                **eval_metrics
-            })
+            log_to_wandb(
+                {
+                    "epoch": epoch + 1,
+                    "train_loss": train_metrics["train_loss"],
+                    "val_dice": eval_metrics["dice"],
+                    "val_iou": eval_metrics["mean_iou"],
+                    "labeled_count": len(self.labeled_indices),
+                },
+                step=epoch + self.cycle * self.config.epochs_per_cycle,
+            )
 
     def save_results(self):
         results_path = os.path.join(

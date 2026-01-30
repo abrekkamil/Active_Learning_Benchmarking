@@ -128,6 +128,27 @@ class UNetModel:
             "train_loss": float(total_loss / max(len(loader), 1)),
             "training_time": float(time.time() - start),
         }
+    
+    def _compute_iou_and_dice(self, preds, targets):
+        ious, dices = [], []
+
+        for c in range(1, self.num_classes):  # skip background
+            p = preds == c
+            t = targets == c
+
+            inter = (p & t).sum().item()
+            union = (p | t).sum().item()
+            denom = p.sum().item() + t.sum().item()
+
+            if union > 0:
+                ious.append(inter / union)
+            if denom > 0:
+                dices.append(2 * inter / denom)
+
+        return (
+            float(np.mean(ious)) if ious else 0.0,
+            float(np.mean(dices)) if dices else 0.0,
+        )
 
     def evaluate(self, dataset) -> Dict[str, float]:
         self.model.eval()
@@ -140,7 +161,7 @@ class UNetModel:
             pin_memory=True,
         )
 
-        ious = []
+        ious, dices, pixel_accs = [], [], []
 
         with torch.no_grad():
             for images, masks in loader:
@@ -148,18 +169,22 @@ class UNetModel:
                 masks = masks.to(self.device)
 
                 if masks.dim() == 4:
-                    masks = masks.argmax(dim=1)  # [1,H,W]
+                    masks = masks.argmax(dim=1)
 
                 logits = self.model(images)
-                preds = torch.argmax(logits, dim=1)  # [1,H,W]
+                preds = torch.argmax(logits, dim=1)
 
-                # binary IoU (class 1 = foreground)
-                inter = ((preds == 1) & (masks == 1)).sum().item()
-                union = ((preds == 1) | (masks == 1)).sum().item()
-                if union > 0:
-                    ious.append(inter / union)
+                pixel_accs.append((preds == masks).float().mean().item())
 
-        return {"mean_iou": float(np.mean(ious)) if len(ious) else 0.0}
+                miou, mdice = self._compute_iou_and_dice(preds, masks)
+                ious.append(miou)
+                dices.append(mdice)
+
+        return {
+            "mean_iou": float(np.mean(ious)),
+            "dice": float(np.mean(dices)),
+            "pixel_acc": float(np.mean(pixel_accs)),
+        }
 
     def predict(self, images: List[torch.Tensor]) -> torch.Tensor:
         """Return predicted class mask(s): [B,H,W]."""
