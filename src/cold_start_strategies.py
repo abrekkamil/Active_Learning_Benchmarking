@@ -237,6 +237,41 @@ class ColdStartStrategies:
         
         return [all_indices[i] for i in selected_indices]
     
+    def _calculate_weak_supervision_score(self, image):
+        """Calculate weak supervision score using heuristics"""
+        
+        if len(image.shape) == 3:
+            # RGB image
+            gray = np.mean(image, axis=0)
+        else:
+            gray = image
+        
+        # Multiple heuristics for weak supervision
+        heuristics = []
+        
+        # 1. Edge density (more edges might indicate more complex objects)
+        edges = cv2.Canny((gray * 255).astype(np.uint8), 50, 150)
+        edge_density = np.sum(edges > 0) / edges.size
+        heuristics.append(edge_density)
+        
+        # 2. Texture complexity (using variance)
+        texture_complexity = np.var(gray)
+        heuristics.append(texture_complexity)
+        
+        # 3. Color diversity (for RGB images)
+        if len(image.shape) == 3:
+            color_diversity = np.mean([np.std(image[i]) for i in range(3)])
+            heuristics.append(color_diversity)
+        
+        # 4. Contrast
+        contrast = np.max(gray) - np.min(gray)
+        heuristics.append(contrast)
+        
+        # Combine heuristics (you can weight them differently)
+        combined_score = np.mean(heuristics)
+        
+        return combined_score
+    
     def self_supervised_sampling(self, all_indices, n_labeled):
         """Self-supervised sampling using contrastive learning features"""
         print("Using self-supervised sampling...")
