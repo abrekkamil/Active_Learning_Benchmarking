@@ -25,7 +25,7 @@ class ActiveLearningSystem:
     3. Iteratively query new samples and retrain
     """
     
-    def __init__(self, config):
+    def __init__(self, config, skip_cold_start=False):
         """Initialize active learning system."""
         self.config = config
         self.device = torch.device(
@@ -53,7 +53,8 @@ class ActiveLearningSystem:
             raise ValueError("Unknown task")
         
         # Initialize pools
-        self._init_pools()
+        if not skip_cold_start:
+            self._init_pools()
         
         # Tracking
         self.cycle = 0
@@ -114,7 +115,23 @@ class ActiveLearningSystem:
             f"Initialized with {len(self.labeled_indices)} labeled "
             f"and {len(self.unlabeled_indices)} unlabeled samples"
         )
-    
+    def set_labeled_indices(self, labeled_indices: List[int]):
+        """
+        Manually set the initial labeled pool (override cold start).
+        Useful for cold start experiments and ablations.
+        """
+        all_indices = list(range(len(self.dataset_train)))
+
+        self.labeled_indices = list(labeled_indices)
+        self.unlabeled_indices = [
+            i for i in all_indices if i not in self.labeled_indices
+        ]
+
+        self.logger.info(
+            f"Manually set labeled pool: "
+            f"{len(self.labeled_indices)} labeled, "
+            f"{len(self.unlabeled_indices)} unlabeled"
+        )
     def train(self, epochs: Optional[int] = None):
         """Train model on current labeled set."""
         if epochs is None:
