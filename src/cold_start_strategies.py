@@ -42,7 +42,7 @@ class ColdStartStrategies:
         """Simple diversity using image statistics."""
         features = []
         for idx in all_indices:
-            image, _ = self.dataset[idx]
+            image, _ = self.dataset_train[idx]
             
             if isinstance(image, torch.Tensor):
                 img_np = image.numpy()
@@ -108,7 +108,7 @@ class ColdStartStrategies:
         """Uncertainty sampling using image entropy."""
         uncertainties = []
         for idx in all_indices:
-            image, _ = self.dataset[idx]
+            image, _ = self.dataset_train[idx]
             
             if isinstance(image, torch.Tensor):
                 img_np = image.cpu().numpy()
@@ -150,7 +150,7 @@ class ColdStartStrategies:
         features = []
         with torch.no_grad():
             for idx in indices:
-                image, _ = self.dataset[idx]
+                image, _ = self.dataset_train[idx]
                 
                 if isinstance(image, torch.Tensor):
                     if image.shape[0] == 1:  # Grayscale
