@@ -312,15 +312,35 @@ class MaskRCNNModel:
     def predict(self, images: List[torch.Tensor]) -> List[Dict[str, torch.Tensor]]:
         """
         Returns list of predictions (torchvision-style):
-          [{"boxes":..., "labels":..., "scores":..., "masks":...}, ...]
+        [{"boxes":..., "labels":..., "scores":..., "masks":...}, ...]
+        Supports:
+        - Custom src.pytorch_mask_rcnn (expects Tensor image)
+        - Torchvision Mask R-CNN (expects List[Tensor])
         """
         self.model.eval()
 
         imgs = [_ensure_rgb(img).to(self.device) for img in images]
 
         with torch.no_grad():
-            # IMPORTANT: torchvision-style expects list[Tensor]
-            outputs = self.model(imgs)
+            try:
+                # Try torchvision-style first: model(List[Tensor]) -> List[Dict]
+                outputs = self.model(imgs)
+
+                # If it returned a dict (single-image custom behavior), normalize to list
+                if isinstance(outputs, dict):
+                    outputs = [outputs]
+
+            except AttributeError as e:
+                # Common failure mode for custom model: it expects Tensor, not list
+                # Fall back to per-image inference: model(Tensor) -> Dict
+                outputs = []
+                for im in imgs:
+                    out = self.model(im)
+                    if isinstance(out, dict):
+                        outputs.append(out)
+                    else:
+                        # If some implementation returns list even for single image
+                        outputs.extend(out)
 
         preds: List[Dict[str, torch.Tensor]] = []
         for out in outputs:
@@ -329,20 +349,24 @@ class MaskRCNNModel:
 
     def get_uncertainty(self, images: List[torch.Tensor]) -> np.ndarray:
         """
-        Entropy over detection scores (per image). If no detections -> 1.0
+        Detection uncertainty heuristic.
+        High uncertainty if:
+        - no detections
+        - low confidence detections
         """
         self.model.eval()
+        preds = self.predict(images)
         scores = []
 
-        preds = self.predict(images)
         for p in preds:
             if "scores" not in p or len(p["scores"]) == 0:
+                # No detections = very uncertain
                 scores.append(1.0)
             else:
-                s = p["scores"]
-                prob = F.softmax(s, dim=0)
-                ent = -(prob * torch.log(prob + 1e-8)).sum().item()
-                scores.append(float(ent))
+                s = p["scores"].float()
+                k = min(len(s), 5)
+                topk_mean = torch.topk(s, k).values.mean().item()
+                scores.append(float(np.clip(1.0 - topk_mean, 0.0, 1.0)))
 
         return np.array(scores, dtype=np.float32)
 
