@@ -10,9 +10,9 @@ class ActiveLearningConfig:
     dataset: str = "coco"
     data_dir: str = "/path/to/dataset"
     dataset_name: str = "experiment_1"
-    dataset_type: "deepcrack"
-    num_classes: 2  # Including background
-    img_size: 256
+    dataset_type: str = "deepcrack"
+    num_classes: int = 2  # Including background
+    img_size: int = 256
 
     # Active learning parameters
     initial_labeled: float = 0.1  # or absolute number if > 1
