@@ -64,7 +64,7 @@ def save_checkpoint(
     model,
     cycle: int,
     epoch: int,
-    ap: float,
+    score: float,
     config,
     is_best: bool = False,
     additional_info: Optional[Dict] = None
@@ -100,7 +100,7 @@ def save_checkpoint(
     checkpoint = {
         'cycle': cycle,
         'epoch': epoch,
-        'ap': ap,
+        'score': score,
         'model_state_dict': model.model.state_dict() if hasattr(model, 'model') else model.state_dict(),
         'optimizer_state_dict': model.optimizer.state_dict() if hasattr(model, 'optimizer') else None,
         'config': config.__dict__ if hasattr(config, '__dict__') else config,
