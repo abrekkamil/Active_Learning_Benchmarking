@@ -1,0 +1,37 @@
+# Base configuration for active learning experiments
+
+dataset: "DeepCrack"
+dataset_type: "deepcrack"
+data_dir: "/home3/vzcl68/Datasets/DeepCrack/"
+dataset_name: "al_experiment"
+num_classes: 2  # Including background
+img_size: 256
+
+# Active learning parameters
+initial_labeled: 0.1  # 10% initially labeled
+query_size: 5         # Query 5 samples per cycle
+al_cycles: 5          # 5 active learning cycles
+epochs_per_cycle: 15  # Train for 15 epochs per cycle
+initial_training_epoch: 3  # Initial training epochs
+
+# Strategies
+cold_start_strategy: "random"
+query_strategy: "uncertainty"
+
+# Model parameters
+use_cuda: true
+lr: 0.00125
+momentum: 0.9
+weight_decay: 0.0001
+lr_steps: [30, 50]
+
+# Logging
+use_wandb: true
+wandb_project: "AL_benchmark"
+print_freq: 100
+
+# Technical settings
+num_workers: 4
+seed: 42
+checkpoint_dir: "results/checkpoints"
+results_dir: "results"
