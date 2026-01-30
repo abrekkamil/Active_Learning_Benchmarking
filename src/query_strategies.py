@@ -15,28 +15,26 @@ class QueryStrategies:
         self.config = config
     
     def calculate_uncertainty(self, model, dataset, indices, device):
-        """Calculate uncertainty scores for unlabeled samples."""
+        """
+        Calculate uncertainty scores for a list of dataset indices.
+
+        This function is MODEL-AGNOSTIC.
+        It delegates uncertainty computation to the model wrapper.
+        """
+
         model.eval()
-        uncertainties = []
-        
-        with torch.no_grad():
-            for idx in indices:
-                image, _ = dataset[idx]
-                image = image.to(device).unsqueeze(0)
-                
-                # Get model predictions
-                outputs = model(image)
-                
-                # Calculate uncertainty
-                if len(outputs["scores"]) > 0:
-                    scores = outputs['scores']
-                    probs = F.softmax(scores, dim=0)
-                    entropy = -torch.sum(probs * torch.log(probs + 1e-10))
-                    uncertainties.append(entropy.item())
-                else:
-                    uncertainties.append(1.0)  # High uncertainty if no detections
-        
-        return np.array(uncertainties)
+
+        images = []
+        for idx in indices:
+            sample = dataset[idx]
+            image = sample[0] if isinstance(sample, (tuple, list)) else sample
+            images.append(image.to(device))
+
+        # 🔑 delegate to model
+        uncertainties = model.get_uncertainty(images)
+
+        return uncertainties
+
     
     def select_samples(self, strategy_name, uncertainties, dataset, indices, query_size):
         """Select samples using specified strategy."""
