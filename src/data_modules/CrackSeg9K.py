@@ -5,16 +5,16 @@ from torchvision import transforms
 from PIL import Image
 
 
-class DeepCrackSegmentationDataset(Dataset):
+class CrackSeg9KDataset(Dataset):
     """
-    DeepCrack dataset with pixel-wise annotations stored as images.
+    CrackSeg9K dataset with pixel-wise annotations stored as images.
 
     Directory structure:
         root/
-          train/
-          train_lab/
-          test/
-          test_lab/
+          train/images/
+          train/masks/
+          test/images/
+          test/masks/
     """
 
     def __init__(
