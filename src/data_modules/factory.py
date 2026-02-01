@@ -16,5 +16,10 @@ def load_dataset(config, split):
         return CocoSemanticSegmentationDataset(
             config.data_dir, split, config.img_size
         )
+    if config.dataset_type == "crackseg9k":
+        from .CrackSeg9K import CrackSeg9KDataset
+        return CrackSeg9KDataset(
+            config.data_dir, img_size=config.img_size
+        )
 
     raise ValueError(f"Unknown dataset type: {config.dataset_type}")
