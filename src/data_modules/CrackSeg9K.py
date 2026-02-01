@@ -5,31 +5,38 @@ from torchvision import transforms
 from PIL import Image
 
 
-class CrackSeg9KDataset(Dataset):
+class DeepCrackSegmentationDataset(Dataset):
     """
-    CrackSeg9K paired image–mask dataset without predefined splits.
+    DeepCrack dataset with pixel-wise annotations stored as images.
 
-    Structure:
+    Directory structure:
         root/
-          Images/
-          Images-2/        (optional)
-          Final_Masks/Masks/
+          train/
+          train_lab/
+          test/
+          test_lab/
     """
 
-    def __init__(self, root_dir, indices=None, img_size=256):
+    def __init__(
+        self,
+        root_dir: str,
+        split: str = "train",
+        img_size: int = 256,
+    ):
+        assert split in ["train", "test", "val"]
+
         self.root_dir = root_dir
+        self.split = split
         self.img_size = img_size
 
-        self.image_dirs = [
-            os.path.join(root_dir, "Images"),
-            os.path.join(root_dir, "Images-2"),
-        ]
-        self.mask_dir = os.path.join(root_dir, "Final_Masks", "Masks")
+        if split == "train":
+            self.image_dir = os.path.join(root_dir, "train/images")
+            self.mask_dir = os.path.join(root_dir, "train/masks")
+        else:
+            self.image_dir = os.path.join(root_dir, "test/images")
+            self.mask_dir = os.path.join(root_dir, "test/masks")
 
         self.samples = self._collect_pairs()
-
-        if indices is not None:
-            self.samples = [self.samples[i] for i in indices]
 
         self.image_transform = transforms.Compose([
             transforms.Resize((img_size, img_size)),
@@ -41,26 +48,25 @@ class CrackSeg9KDataset(Dataset):
             transforms.ToTensor(),
         ])
 
-        print(f"[CrackSeg9K] {len(self.samples)} samples loaded")
+        print(f"[DeepCrack] {len(self.samples)} samples loaded for split='{split}'")
 
     def _collect_pairs(self):
-        images = []
-        for d in self.image_dirs:
-            if os.path.exists(d):
-                images.extend(
-                    os.path.join(d, f)
-                    for f in os.listdir(d)
-                    if f.lower().endswith((".png", ".jpg", ".jpeg"))
-                )
+        image_files = []
+        for ext in (".jpg", ".png", ".jpeg", ".JPG", ".PNG", ".JPEG"):
+            image_files.extend(
+                f for f in os.listdir(self.image_dir) if f.endswith(ext)
+            )
 
         pairs = []
-        for img_path in images:
-            base = os.path.splitext(os.path.basename(img_path))[0]
-            mask_path = os.path.join(self.mask_dir, base + ".png")
-            if os.path.exists(mask_path):
-                pairs.append((img_path, mask_path))
+        for img_file in image_files:
+            base = os.path.splitext(img_file)[0]
+            for m_ext in (".png", ".jpg", ".jpeg", ".PNG", ".JPG", ".JPEG"):
+                mask_file = base + m_ext
+                if os.path.exists(os.path.join(self.mask_dir, mask_file)):
+                    pairs.append((img_file, mask_file))
+                    break
             else:
-                print(f"[Warning] No mask for {base}")
+                print(f"[Warning] No mask found for {img_file}")
 
         return pairs
 
@@ -68,15 +74,21 @@ class CrackSeg9KDataset(Dataset):
         return len(self.samples)
 
     def __getitem__(self, idx):
-        img_path, mask_path = self.samples[idx]
+        img_file, mask_file = self.samples[idx]
 
-        image = Image.open(img_path).convert("RGB")
-        mask = Image.open(mask_path).convert("L")
+        image = Image.open(
+            os.path.join(self.image_dir, img_file)
+        ).convert("RGB")
+
+        mask = Image.open(
+            os.path.join(self.mask_dir, mask_file)
+        ).convert("L")
 
         image = self.image_transform(image)
         mask = self.mask_transform(mask)
         mask = (mask > 0.5).long()
 
+        # One-hot: background / crack
         mask_onehot = torch.zeros((2, *mask.shape[1:]), dtype=torch.float32)
         mask_onehot[0] = (mask == 0)
         mask_onehot[1] = (mask == 1)
