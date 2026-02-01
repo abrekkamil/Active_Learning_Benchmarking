@@ -19,7 +19,7 @@ def load_dataset(config, split):
     if config.dataset_type == "crackseg9k":
         from .CrackSeg9K import CrackSeg9KDataset
         return CrackSeg9KDataset(
-            config.data_dir, img_size=config.img_size
+            config.data_dir, split, img_size=config.img_size
         )
 
     raise ValueError(f"Unknown dataset type: {config.dataset_type}")

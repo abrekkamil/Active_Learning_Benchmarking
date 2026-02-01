@@ -48,7 +48,7 @@ class CrackSeg9KDataset(Dataset):
             transforms.ToTensor(),
         ])
 
-        print(f"[DeepCrack] {len(self.samples)} samples loaded for split='{split}'")
+        print(f"[CrackSeg9K] {len(self.samples)} samples loaded for split='{split}'")
 
     def _collect_pairs(self):
         image_files = []
