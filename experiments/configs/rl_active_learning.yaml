@@ -1,0 +1,28 @@
+# experiments/configs/rl_active_learning.yaml
+dataset: "DeepCrack"
+dataset_type: "deepcrack"
+data_dir: "/home3/vzcl68/Datasets/DeepCrack/"
+dataset_name: "al_experiment"
+num_classes: 2  # Including background
+img_size: 256
+
+gpu: 0
+seed: 42
+
+init_pct: 0.15
+al_cycles: 10
+al_budget: 10
+
+batch_size: 4
+workers: 4
+lr: 1e-3
+
+oracle_epochs: 20
+cycle_epochs: 10
+
+policy_hidden: 256
+policy_lr: 1e-4
+policy_temp: 1.0
+entropy_beta: 0.01
+candidate_pool: 200
+results_dir: ./results/rl_active_learning/
