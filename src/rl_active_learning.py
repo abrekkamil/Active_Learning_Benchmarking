@@ -137,7 +137,7 @@ class ActiveLearningSystemRL:
         returns: [B, 1027]
         """
         with torch.no_grad():
-            feats = self.oracle_model.get_bottleneck_features(images)
+            feats = self.oracle_model.model.get_bottleneck_features(images)
             logits = self.oracle_model(images)
 
             probs = F.softmax(logits, dim=1)
