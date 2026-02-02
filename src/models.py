@@ -23,7 +23,13 @@ from torch.utils.data import DataLoader
 import torchvision.models as tv_models
 from torchvision.models import ResNet18_Weights, ResNet50_Weights
 
-
+from sklearn.metrics import (
+    precision_score,
+    recall_score,
+    f1_score,
+    jaccard_score,
+    accuracy_score,
+)
 # ============================================================
 # Helpers
 # ============================================================
@@ -163,9 +169,11 @@ class UNetModel:
         )
 
         ious, dices, pixel_accs = [], [], []
+        all_preds, all_targets = [], []
 
         with torch.no_grad():
-            pbar = tqdm(loader, desc=f"Validation", leave=False,)
+            pbar = tqdm(loader, desc="Validation", leave=False)
+
             for images, masks in pbar:
                 images = images.to(self.device)
                 masks = masks.to(self.device)
@@ -176,17 +184,46 @@ class UNetModel:
                 logits = self.model(images)
                 preds = torch.argmax(logits, dim=1)
 
+                # ---------- segmentation metrics ----------
                 pixel_accs.append((preds == masks).float().mean().item())
 
                 miou, mdice = self._compute_iou_and_dice(preds, masks)
                 ious.append(miou)
                 dices.append(mdice)
 
-                pbar.set_postfix(dice=f"{np.mean(dices):.4f}", iou=f"{np.mean(ious):.4f}")
+                # ---------- pixel-wise metrics ----------
+                all_preds.append(preds.cpu().numpy().reshape(-1))
+                all_targets.append(masks.cpu().numpy().reshape(-1))
+
+                # ---------- live display ----------
+                pbar.set_postfix(
+                    dice=f"{np.mean(dices):.4f}",
+                    iou=f"{np.mean(ious):.4f}",
+                )
+
+        # ---------- aggregate pixel-wise ----------
+        all_preds = np.concatenate(all_preds)
+        all_targets = np.concatenate(all_targets)
+
+        precision = precision_score(all_targets, all_preds, pos_label=1, zero_division=0)
+        recall    = recall_score(all_targets, all_preds, pos_label=1, zero_division=0)
+        f1        = f1_score(all_targets, all_preds, pos_label=1, zero_division=0)
+        iou_px    = jaccard_score(all_targets, all_preds, pos_label=1, zero_division=0)
+        acc       = accuracy_score(all_targets, all_preds)
 
         return {
+            # region-based (segmentation)
             "mean_iou": float(np.mean(ious)),
             "dice": float(np.mean(dices)),
+
+            # pixel-wise
+            "precision": float(precision),
+            "recall": float(recall),
+            "f1": float(f1),
+            "iou_pixel": float(iou_px),
+            "accuracy": float(acc),
+
+            # auxiliary
             "pixel_acc": float(np.mean(pixel_accs)),
         }
 
