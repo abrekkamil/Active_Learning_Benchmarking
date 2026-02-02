@@ -150,7 +150,9 @@ class ActiveLearningSystemRL:
 
         states = torch.cat(states, dim=0)
 
+        states = states.detach()        
         logits = self.policy(states)
+
         probs = F.softmax(logits / self.policy_temp, dim=0)
 
         selected_pos = torch.multinomial(
