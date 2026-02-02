@@ -100,7 +100,7 @@ class UNetModel:
         self.model.eval()
 
     # ---- core API ----
-    def train_epoch(self, dataset, epoch: int) -> Dict[str, float]:
+    def train_epoch(self, dataset, epoch: int, total_epochs: int) -> Dict[str, float]:
         self.model.train()
 
         loader = DataLoader(
@@ -113,7 +113,7 @@ class UNetModel:
 
         total_loss = 0.0
         start = time.time()
-        pbar = tqdm(loader, desc=f"Epoch {epoch}", leave=False,)
+        pbar = tqdm(loader, desc=f"Epoch {epoch}/{total_epochs}", leave=False,)
         for images, masks in pbar:
             # images: BCHW
             images = images.to(self.device)

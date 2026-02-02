@@ -154,14 +154,21 @@ class ActiveLearningSystem:
             # Train
             train_metrics = self.model.train_epoch(
                 labeled_dataset, 
-                epoch + self.cycle * epochs
+                epoch + self.cycle * epochs,
+                epochs
             )
             
             # Evaluate
             eval_metrics = self.model.evaluate(self.dataset_val)
             
             epoch_time = time.time() - epoch_start
-            
+            self.logger.info(
+                f"[VAL] Dice={eval_metrics['dice']:.4f} | "
+                f"IoU={eval_metrics.get('f1', 0):.4f} | "
+                f"IoU={eval_metrics.get('mean_iou', 0):.4f} | "
+                f"PixelAcc={eval_metrics.get('pixel_acc', 0):.4f} | "
+                f"Labeled={len(self.labeled_indices)}"
+            )
             # Log metrics
             self._log_metrics(
                 epoch=epoch,

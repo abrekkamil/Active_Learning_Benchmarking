@@ -197,12 +197,13 @@ class ActiveLearningSystemRL:
         # Train
         labeled_dataset = Subset(self.dataset_train, self.labeled_indices)
         for ep in range(self.config.epochs_per_cycle):
-            self.main_model.train_epoch(labeled_dataset, ep)
+            self.main_model.train_epoch(labeled_dataset, ep, self.config.epochs_per_cycle)
 
         # Evaluate
         metrics = self.main_model.evaluate(self.dataset_val)
         self.logger.info(
             f"[VAL] Dice={metrics['dice']:.4f} | "
+            f"IoU={metrics.get('f1', 0):.4f} | "
             f"IoU={metrics.get('mean_iou', 0):.4f} | "
             f"PixelAcc={metrics.get('pixel_acc', 0):.4f} | "
             f"Labeled={len(self.labeled_indices)}"
