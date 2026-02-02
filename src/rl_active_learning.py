@@ -126,7 +126,7 @@ class ActiveLearningSystemRL:
             )
 
         self.oracle_model.eval()
-        for p in self.oracle_model.parameters():
+        for p in self.oracle_model.model.parameters():
             p.requires_grad = False
     # ==========================================================
     # Feature + uncertainty → state
