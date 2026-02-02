@@ -138,7 +138,7 @@ class ActiveLearningSystemRL:
         """
         with torch.no_grad():
             feats = self.oracle_model.model.get_bottleneck_features(images)
-            logits = self.oracle_model(images)
+            logits = self.oracle_model.model(images)
 
             probs = F.softmax(logits, dim=1)
             entropy = -(probs * torch.log(probs + 1e-8)).sum(dim=1).mean(dim=[1, 2])
