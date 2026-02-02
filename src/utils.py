@@ -7,7 +7,7 @@ import json
 import logging
 import time
 import glob
-import re
+import random
 from pathlib import Path
 from typing import Dict, List, Tuple, Optional, Any, Union
 import numpy as np
@@ -38,7 +38,7 @@ def set_seed(seed: int = 42, deterministic: bool = False):
         torch.backends.cudnn.deterministic = False
         torch.backends.cudnn.benchmark = True
 
-        
+
 def setup_logging(experiment_name: str, log_dir: str = "results/logs") -> logging.Logger:
     """
     Set up logging for an experiment.
