@@ -71,6 +71,10 @@ class ActiveLearningSystem:
         print(f"  Query Strategy: {config.query_strategy}")
         if not skip_cold_start:
             print(f"  Initial labeled: {len(self.labeled_indices)} samples")
+        else:
+            print(f"  Skipped cold start. Full dataset will be used for training.")
+            self.labeled_indices  = list(range(len(self.dataset_train)))
+            self.unlabeled_indices = []
     
     def _load_datasets(self):
         """Load training and validation datasets."""
