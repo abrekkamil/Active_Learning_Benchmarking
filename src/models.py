@@ -12,6 +12,7 @@ Wrappers provide a unified API across tasks:
 import time
 from types import SimpleNamespace
 from typing import List, Dict, Any, Optional, Union
+from tqdm import tqdm
 
 import numpy as np
 import torch
@@ -106,8 +107,8 @@ class UNetModel:
 
         total_loss = 0.0
         start = time.time()
-
-        for images, masks in loader:
+        pbar = tqdm(loader, desc=f"Epoch {epoch}", leave=False,)
+        for images, masks in pbar:
             # images: BCHW
             images = images.to(self.device)
 
@@ -123,7 +124,7 @@ class UNetModel:
             self.optimizer.step()
 
             total_loss += loss.item()
-
+            pbar.set_postfix({"loss": f"{loss.item():.4f}"})
         return {
             "train_loss": float(total_loss / max(len(loader), 1)),
             "training_time": float(time.time() - start),
@@ -164,7 +165,8 @@ class UNetModel:
         ious, dices, pixel_accs = [], [], []
 
         with torch.no_grad():
-            for images, masks in loader:
+            pbar = tqdm(loader, desc=f"Validation", leave=False,)
+            for images, masks in pbar:
                 images = images.to(self.device)
                 masks = masks.to(self.device)
 
@@ -179,6 +181,8 @@ class UNetModel:
                 miou, mdice = self._compute_iou_and_dice(preds, masks)
                 ious.append(miou)
                 dices.append(mdice)
+
+                pbar.set_postfix(dice=f"{np.mean(dices):.4f}", iou=f"{np.mean(ious):.4f}")
 
         return {
             "mean_iou": float(np.mean(ious)),
