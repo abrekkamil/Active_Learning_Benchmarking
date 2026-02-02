@@ -9,6 +9,8 @@ from torch.utils.data import DataLoader, Subset
 from .models import UNetModel, PolicyNet
 from .utils import setup_logging, set_seed
 from .data_modules.factory import load_dataset
+from .cold_start_strategies import ColdStartStrategies
+
 
 
 class ActiveLearningSystemRL:
@@ -72,9 +74,13 @@ class ActiveLearningSystemRL:
             else int(config.initial_labeled)
         )
 
-        self.labeled_indices = np.random.choice(
-            all_indices, size=n_init, replace=False
-        ).tolist()
+        cold_start = ColdStartStrategies(self.dataset_train, config)
+
+        self.labeled_indices = cold_start.apply(
+            strategy_name=config.cold_start_strategy,
+            n_samples=n_init,
+            all_indices=all_indices,
+        )
 
         self.unlabeled_indices = [
             i for i in all_indices if i not in self.labeled_indices
