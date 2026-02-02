@@ -10,7 +10,7 @@ from .models import UNetModel, PolicyNet
 from .utils import setup_logging, set_seed
 from .data_modules.factory import load_dataset
 from .cold_start_strategies import ColdStartStrategies
-
+import wandb
 
 
 class ActiveLearningSystemRL:
@@ -201,6 +201,12 @@ class ActiveLearningSystemRL:
 
         # Evaluate
         metrics = self.main_model.evaluate(self.dataset_val)
+        self.logger.info(
+            f"[VAL] Dice={metrics['dice']:.4f} | "
+            f"IoU={metrics.get('mean_iou', 0):.4f} | "
+            f"PixelAcc={metrics.get('pixel_acc', 0):.4f} | "
+            f"Labeled={len(self.labeled_indices)}"
+        )
         f1 = metrics["f1"]
 
         reward = 0.0 if self.prev_f1 is None else f1 - self.prev_f1
@@ -228,8 +234,25 @@ class ActiveLearningSystemRL:
 
         metrics["reward"] = reward
         metrics["labeled"] = len(self.labeled_indices)
-        self.history.append(metrics)
+        logged_metrics = {
+            "cycle": len(self.history),
+            **metrics,
+            "reward": reward,
+            "labeled": len(self.labeled_indices),
+        }
 
+        self.history.append(logged_metrics)
+        if self.config.use_wandb:
+            wandb.log(
+                {
+                    "val/dice": metrics["dice"],
+                    "val/iou": metrics.get("mean_iou", 0),
+                    "val/pixel_acc": metrics.get("pixel_acc", 0),
+                    "rl/reward": reward,
+                    "pool/labeled": len(self.labeled_indices),
+                },
+                step=len(self.history),
+            )
         return metrics
 
     # ==========================================================
