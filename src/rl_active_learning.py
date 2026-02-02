@@ -212,12 +212,19 @@ class ActiveLearningSystemRL:
             + (1 - self.baseline_momentum) * reward
         )
 
-        advantage = reward - self.reward_baseline
-        loss = -(advantage * self.log_prob_sum) - self.entropy_beta * self.entropy
+        # Policy update ONLY if a query actually happened
+        if hasattr(self, "log_prob_sum") and self.log_prob_sum is not None:
 
-        self.policy_optimizer.zero_grad()
-        loss.backward()
-        self.policy_optimizer.step()
+            advantage = reward - self.reward_baseline
+            loss = -(advantage * self.log_prob_sum) - self.entropy_beta * self.entropy
+
+            self.policy_optimizer.zero_grad()
+            loss.backward()
+            self.policy_optimizer.step()
+
+        else:
+            self.logger.info("No policy update (no query this cycle)")
+
 
         metrics["reward"] = reward
         metrics["labeled"] = len(self.labeled_indices)
