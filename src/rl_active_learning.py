@@ -1,346 +1,221 @@
-import os
-import numpy as np
-from tqdm import tqdm
-from typing import List, Optional, Dict, Any
-
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
-import torch.optim as optim
+import numpy as np
+import time
+from typing import List, Dict, Any
+
 from torch.utils.data import DataLoader, Subset
 
-from sklearn.cluster import MiniBatchKMeans
-from sklearn.metrics.pairwise import euclidean_distances
-from sklearn.metrics import (
-    precision_score,
-    recall_score,
-    f1_score,
-    jaccard_score,
-    accuracy_score,
-)
-
-from src.networks.unet import UNetExact
-from src.utils import set_seed
+from .models import UNetModel, PolicyNet
+from .utils import setup_logging, set_seed
+from .data_modules.factory import load_dataset
 
 
-# ============================================================
-# Policy Network (REINFORCE)
-# ============================================================
-class PolicyNet(nn.Module):
+class ActiveLearningSystemRL:
     """
-    Given state vectors [N, D], outputs logits [N].
-    Softmax over logits defines a distribution over candidate samples.
+    Reinforcement Learning–based Active Learning system
+    Compatible with ActiveLearningConfig and existing datasets.
     """
 
-    def __init__(self, state_dim: int, hidden_dim: int = 256):
-        super().__init__()
-        self.net = nn.Sequential(
-            nn.Linear(state_dim, hidden_dim),
-            nn.ReLU(),
-            nn.Linear(hidden_dim, hidden_dim),
-            nn.ReLU(),
-            nn.Linear(hidden_dim, 1),
+    def __init__(self, config):
+        self.config = config
+        set_seed(config.seed)
+
+        self.device = torch.device(
+            "cuda" if torch.cuda.is_available() and config.use_cuda else "cpu"
         )
 
-    def forward(self, states: torch.Tensor) -> torch.Tensor:
-        return self.net(states).squeeze(-1)  # [N]
+        self.logger = setup_logging(f"{config.dataset_name}_RL")
 
+        # --------------------
+        # Datasets
+        # --------------------
+        self.dataset_train = load_dataset(config, split="train")
+        self.dataset_val   = load_dataset(config, split="val")
 
-# ============================================================
-# Feature extractor for diversity init (ResNet18)
-# ============================================================
-class FeatureExtractor(nn.Module):
-    def __init__(self):
-        super().__init__()
-        from torchvision import models
-
-        try:
-            weights = models.ResNet18_Weights.DEFAULT
-            resnet = models.resnet18(weights=weights)
-        except Exception:
-            resnet = models.resnet18(pretrained=True)
-
-        self.features = nn.Sequential(*list(resnet.children())[:-1])
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        x = self.features(x)          # [B,512,1,1]
-        return x.view(x.size(0), -1)  # [B,512]
-
-
-# ============================================================
-# RL-based Active Learning for Segmentation
-# ============================================================
-class ActiveLearningSegmentationRL:
-    """
-    Reinforcement Learning Active Learning using REINFORCE.
-
-    - Oracle model: frozen, used for state construction
-    - Main model: trained on labeled set
-    - Policy: learns to select samples maximizing ΔF1
-    """
-
-    def __init__(self, train_dataset, args, device: torch.device):
-        self.train_dataset = train_dataset
-        self.args = args
-        self.device = device
-
-        set_seed(args.seed)
-
-        self.labeled_indices: List[int] = []
-        self.unlabeled_indices: List[int] = list(range(len(train_dataset)))
-
+        # --------------------
         # Models
-        self.oracle_model = UNetExact(
-            in_channels=3,
-            out_channels=2,
-            norm=args.norm
-        ).to(device)
+        # --------------------
+        self.oracle_model = UNetModel(
+            num_classes=config.num_classes,
+            device=self.device,
+            config=config,
+        )
 
-        self.main_model = UNetExact(
-            in_channels=3,
-            out_channels=2,
-            norm=args.norm
-        ).to(device)
+        self.main_model = UNetModel(
+            num_classes=config.num_classes,
+            device=self.device,
+            config=config,
+        )
 
-        # State = bottleneck(1024) + uncertainty(3)
-        self.state_dim = 1027
-        self.policy = PolicyNet(
-            self.state_dim,
-            hidden_dim=args.policy_hidden
-        ).to(device)
-
-        self.policy_opt = optim.Adam(
+        # --------------------
+        # RL policy
+        # --------------------
+        self.state_dim = 1024 + 3   # bottleneck + uncertainty
+        self.policy = PolicyNet(self.state_dim).to(self.device)
+        self.policy_optimizer = torch.optim.Adam(
             self.policy.parameters(),
-            lr=args.policy_lr
+            lr=getattr(config, "policy_lr", 1e-4),
         )
 
-        # REINFORCE baseline
-        self.reward_baseline = 0.0
-        self.baseline_momentum = 0.9
+        self.entropy_beta = getattr(config, "entropy_beta", 1e-3)
+        self.policy_temp = getattr(config, "policy_temp", 1.0)
 
-        self.prev_f1: Optional[float] = None
+        # --------------------
+        # Pools
+        # --------------------
+        all_indices = list(range(len(self.dataset_train)))
 
-    # ========================================================
-    # Cold start: diversity initialization
-    # ========================================================
-    def diversity_based_initialization(self, initial_percentage: float = 0.1) -> List[int]:
-        print(f"Selecting {initial_percentage*100:.1f}% using diversity sampling")
-
-        extractor = FeatureExtractor().to(self.device)
-        extractor.eval()
-
-        loader = DataLoader(
-            self.train_dataset,
-            batch_size=self.args.feature_batch,
-            shuffle=False,
-            num_workers=self.args.workers,
-            pin_memory=True,
+        n_init = (
+            int(config.initial_labeled * len(all_indices))
+            if config.initial_labeled <= 1
+            else int(config.initial_labeled)
         )
 
-        features = []
-        with torch.no_grad():
-            for images, _ in tqdm(loader, desc="Extracting features"):
-                images = images.to(self.device, non_blocking=True)
-                f = extractor(images).cpu().numpy()
-                features.append(f)
+        self.labeled_indices = np.random.choice(
+            all_indices, size=n_init, replace=False
+        ).tolist()
 
-        features = np.vstack(features)
-
-        n_init = max(1, int(len(features) * initial_percentage))
-        kmeans = MiniBatchKMeans(
-            n_clusters=n_init,
-            random_state=self.args.seed,
-            batch_size=4096,
-            n_init=3,
-        )
-        kmeans.fit(features)
-
-        dists = euclidean_distances(features, kmeans.cluster_centers_)
-        selected = []
-
-        for c in range(n_init):
-            order = np.argsort(dists[:, c])
-            for idx in order:
-                if int(idx) not in selected:
-                    selected.append(int(idx))
-                    break
-
-        self.labeled_indices = selected
         self.unlabeled_indices = [
-            i for i in range(len(self.train_dataset))
-            if i not in set(selected)
+            i for i in all_indices if i not in self.labeled_indices
         ]
 
-        print(f"Initialized with {len(self.labeled_indices)} labeled samples")
-        return self.labeled_indices
+        # --------------------
+        # Tracking
+        # --------------------
+        self.prev_dice = None
+        self.reward_baseline = 0.0
+        self.baseline_momentum = 0.9
+        self.history: List[Dict[str, float]] = []
 
-    # ========================================================
-    # Training utilities
-    # ========================================================
-    def _train_model(self, model, labeled_indices: List[int], epochs: int):
-        subset = Subset(self.train_dataset, labeled_indices)
+        self.logger.info(
+            f"RL AL initialized with {len(self.labeled_indices)} labeled samples"
+        )
+
+    # ==========================================================
+    # Feature + uncertainty → state
+    # ==========================================================
+    def _compute_state(self, images: torch.Tensor) -> torch.Tensor:
+        """
+        images: [B,3,H,W]
+        returns: [B, 1027]
+        """
+        with torch.no_grad():
+            feats = self.oracle_model.model.get_bottleneck_features(images)
+            logits = self.oracle_model.model(images)
+
+            probs = F.softmax(logits, dim=1)
+            entropy = -(probs * torch.log(probs + 1e-8)).sum(dim=1).mean(dim=[1, 2])
+            confidence = probs.max(dim=1).values.mean(dim=[1, 2])
+            margin = torch.topk(probs, 2, dim=1).values
+            margin = (margin[:, 0] - margin[:, 1]).mean(dim=[1, 2])
+
+            uncertainty = torch.stack(
+                [entropy, 1.0 - confidence, 1.0 - margin], dim=1
+            )
+
+            return torch.cat([feats, uncertainty], dim=1)
+
+    # ==========================================================
+    # RL query step
+    # ==========================================================
+    def query(self, budget: int) -> List[int]:
+        if len(self.unlabeled_indices) == 0:
+            return []
+
+        pool = np.random.choice(
+            self.unlabeled_indices,
+            size=min(len(self.unlabeled_indices), getattr(self.config, "candidate_pool", 128)),
+            replace=False,
+        ).tolist()
+
+        subset = Subset(self.dataset_train, pool)
         loader = DataLoader(
             subset,
-            batch_size=self.args.batch_size,
-            shuffle=True,
-            num_workers=self.args.workers,
-            pin_memory=True,
-        )
-
-        criterion = nn.CrossEntropyLoss()
-        optimizer = optim.Adam(model.parameters(), lr=self.args.lr)
-
-        model.train()
-        for _ in range(epochs):
-            for images, masks in loader:
-                images = images.to(self.device)
-                masks = masks.to(self.device)
-
-                optimizer.zero_grad(set_to_none=True)
-                logits = model(images)
-                loss = criterion(logits, masks)
-                loss.backward()
-                optimizer.step()
-
-    def train_oracle_model(self):
-        print("Training oracle model")
-        self._train_model(
-            self.oracle_model,
-            self.labeled_indices,
-            self.args.oracle_epochs
-        )
-
-    def train_main_model(self):
-        print(f"Training main model on {len(self.labeled_indices)} samples")
-        self._train_model(
-            self.main_model,
-            self.labeled_indices,
-            self.args.cycle_epochs
-        )
-
-    # ========================================================
-    # State construction
-    # ========================================================
-    @staticmethod
-    def _uncertainty_from_logits(logits: torch.Tensor) -> torch.Tensor:
-        probs = F.softmax(logits, dim=1)
-        entropy = -(probs * torch.log(probs + 1e-8)).sum(dim=1).mean(dim=[1, 2])
-        confidence = probs.max(dim=1).values.mean(dim=[1, 2])
-        sorted_probs, _ = torch.sort(probs, dim=1, descending=True)
-        margin = (sorted_probs[:, 0] - sorted_probs[:, 1]).mean(dim=[1, 2])
-        return torch.stack([entropy, 1 - confidence, 1 - margin], dim=1)
-
-    def compute_states(self, indices: List[int]) -> torch.Tensor:
-        self.oracle_model.eval()
-
-        subset = Subset(self.train_dataset, indices)
-        loader = DataLoader(
-            subset,
-            batch_size=self.args.state_batch,
+            batch_size=self.config.batch_size,
             shuffle=False,
-            num_workers=self.args.workers,
-            pin_memory=True,
+            num_workers=self.config.num_workers,
         )
 
         states = []
-        with torch.no_grad():
-            for images, _ in loader:
-                images = images.to(self.device)
-                feats = self.oracle_model.get_bottleneck_features(images)
-                logits = self.oracle_model(images)
-                unc = self._uncertainty_from_logits(logits)
-                states.append(torch.cat([feats, unc], dim=1).cpu())
+        for images, _ in loader:
+            images = images.to(self.device)
+            states.append(self._compute_state(images))
 
-        return torch.cat(states, dim=0)
+        states = torch.cat(states, dim=0)
 
-    # ========================================================
-    # Evaluation
-    # ========================================================
-    def evaluate_main_model(self, val_loader) -> Dict[str, float]:
-        self.main_model.eval()
-        preds, targets = [], []
-
-        with torch.no_grad():
-            for images, masks in val_loader:
-                images = images.to(self.device)
-                masks = masks.to(self.device)
-                logits = self.main_model(images)
-                p = torch.argmax(logits, dim=1)
-
-                preds.append(p.cpu().numpy().ravel())
-                targets.append(masks.cpu().numpy().ravel())
-
-        preds = np.concatenate(preds)
-        targets = np.concatenate(targets)
-
-        return {
-            "precision": precision_score(targets, preds, zero_division=0),
-            "recall": recall_score(targets, preds, zero_division=0),
-            "f1": f1_score(targets, preds, zero_division=0),
-            "iou": jaccard_score(targets, preds, zero_division=0),
-            "accuracy": accuracy_score(targets, preds),
-        }
-
-    # ========================================================
-    # RL selection + update
-    # ========================================================
-    def select_with_policy(self, budget: int):
-        if len(self.unlabeled_indices) == 0:
-            return [], None, None
-
-        pool_size = min(self.args.candidate_pool, len(self.unlabeled_indices))
-        candidates = np.random.choice(
-            self.unlabeled_indices,
-            size=pool_size,
-            replace=False
-        ).tolist()
-
-        states = self.compute_states(candidates).to(self.device)
         logits = self.policy(states)
-        probs = F.softmax(logits / self.args.policy_temp, dim=0)
+        probs = F.softmax(logits / self.policy_temp, dim=0)
 
-        k = min(budget, pool_size)
-        chosen_pos = torch.multinomial(probs, k, replacement=False)
-        chosen_probs = probs[chosen_pos].clamp_min(1e-12)
+        selected_pos = torch.multinomial(
+            probs, num_samples=min(budget, len(pool)), replacement=False
+        )
 
-        log_prob_sum = torch.log(chosen_probs).sum()
-        entropy = -(probs * torch.log(probs + 1e-12)).sum()
+        self.log_prob_sum = torch.log(probs[selected_pos]).sum()
+        self.entropy = -(probs * torch.log(probs + 1e-8)).sum()
 
-        chosen_indices = [candidates[i] for i in chosen_pos.cpu().tolist()]
-        return chosen_indices, log_prob_sum, entropy
+        selected_indices = [pool[i] for i in selected_pos.tolist()]
+        return selected_indices
 
-    def policy_update(self, reward: float, logp: torch.Tensor, entropy: torch.Tensor):
+    # ==========================================================
+    # One AL cycle
+    # ==========================================================
+    def run_cycle(self):
+        # Query
+        new_indices = self.query(self.config.query_size)
+
+        self.labeled_indices.extend(new_indices)
+        self.unlabeled_indices = [
+            i for i in self.unlabeled_indices if i not in new_indices
+        ]
+
+        # Train
+        labeled_dataset = Subset(self.dataset_train, self.labeled_indices)
+        for ep in range(self.config.epochs_per_cycle):
+            self.main_model.train_epoch(labeled_dataset, ep)
+
+        # Evaluate
+        metrics = self.main_model.evaluate(self.dataset_val)
+        dice = metrics["dice"]
+
+        # Reward
+        reward = 0.0 if self.prev_dice is None else dice - self.prev_dice
+        self.prev_dice = dice
+
+        # Policy update
         self.reward_baseline = (
             self.baseline_momentum * self.reward_baseline
             + (1 - self.baseline_momentum) * reward
         )
 
         advantage = reward - self.reward_baseline
-        loss = -(advantage * logp) - self.args.entropy_beta * entropy
+        loss = -(advantage * self.log_prob_sum) - self.entropy_beta * self.entropy
 
-        self.policy_opt.zero_grad(set_to_none=True)
+        self.policy_optimizer.zero_grad()
         loss.backward()
-        nn.utils.clip_grad_norm_(self.policy.parameters(), 1.0)
-        self.policy_opt.step()
+        self.policy_optimizer.step()
 
-    # ========================================================
-    # One AL cycle
-    # ========================================================
-    def run_cycle(self, val_loader):
-        new_indices, logp, entropy = self.select_with_policy(self.args.al_budget)
-        if not new_indices:
-            return None
+        metrics["reward"] = reward
+        metrics["labeled"] = len(self.labeled_indices)
+        self.history.append(metrics)
 
-        self.labeled_indices.extend(new_indices)
-        self.unlabeled_indices = [
-            i for i in self.unlabeled_indices if i not in set(new_indices)
-        ]
-
-        self.train_main_model()
-        metrics = self.evaluate_main_model(val_loader)
-
-        reward = 0.0 if self.prev_f1 is None else metrics["f1"] - self.prev_f1
-        self.prev_f1 = metrics["f1"]
-
-        self.policy_update(reward, logp, entropy)
         return metrics
+
+    # ==========================================================
+    # Full run
+    # ==========================================================
+    def run(self):
+        self.logger.info("Starting RL Active Learning")
+
+        # Warm-up
+        labeled_dataset = Subset(self.dataset_train, self.labeled_indices)
+        for ep in range(self.config.initial_training_epoch):
+            self.main_model.train_epoch(labeled_dataset, ep)
+
+        self.prev_dice = self.main_model.evaluate(self.dataset_val)["dice"]
+
+        for cycle in range(self.config.al_cycles):
+            self.logger.info(f"RL Cycle {cycle + 1}")
+            self.run_cycle()
+
+        return self.history
