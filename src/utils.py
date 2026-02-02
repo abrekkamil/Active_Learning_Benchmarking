@@ -16,6 +16,29 @@ import matplotlib.pyplot as plt
 from collections import defaultdict
 import wandb
 
+def set_seed(seed: int = 42, deterministic: bool = False):
+    """
+    Set random seed for reproducibility across Python, NumPy, and PyTorch.
+
+    Args:
+        seed (int): random seed
+        deterministic (bool): if True, enforce deterministic CUDA behavior
+                              (slower but fully reproducible)
+    """
+    random.seed(seed)
+    np.random.seed(seed)
+
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+
+    if deterministic:
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = False
+    else:
+        torch.backends.cudnn.deterministic = False
+        torch.backends.cudnn.benchmark = True
+
+        
 def setup_logging(experiment_name: str, log_dir: str = "results/logs") -> logging.Logger:
     """
     Set up logging for an experiment.
