@@ -19,13 +19,14 @@ class ActiveLearningSystemRL:
     Compatible with ActiveLearningConfig and existing datasets.
     """
 
-    def __init__(self, config):
+    def __init__(self, config,  skip_cold_start: bool = False):
         self.config = config
         set_seed(config.seed)
 
         self.device = torch.device(
             "cuda" if torch.cuda.is_available() and config.use_cuda else "cpu"
         )
+        self.prev_f1 = None
 
         self.logger = setup_logging(f"{config.dataset_name}_RL")
 
@@ -68,23 +69,39 @@ class ActiveLearningSystemRL:
         # --------------------
         all_indices = list(range(len(self.dataset_train)))
 
-        n_init = (
-            int(config.initial_labeled * len(all_indices))
-            if config.initial_labeled <= 1
-            else int(config.initial_labeled)
-        )
+        if skip_cold_start:
+            # FULL DATASET (upper bound)
+            self.labeled_indices = all_indices
+            self.unlabeled_indices = []
 
-        cold_start = ColdStartStrategies(self.dataset_train, config)
+            self.logger.info(
+                "RL AL initialized with FULL dataset (skip cold start)"
+            )
 
-        self.labeled_indices = cold_start.apply(
-            strategy_name=config.cold_start_strategy,
-            n_samples=n_init,
-            all_indices=all_indices,
-        )
+        else:
+            n_init = (
+                int(config.initial_labeled * len(all_indices))
+                if config.initial_labeled <= 1
+                else int(config.initial_labeled)
+            )
 
-        self.unlabeled_indices = [
-            i for i in all_indices if i not in self.labeled_indices
-        ]
+            cold_start = ColdStartStrategies(self.dataset_train, config)
+
+            self.labeled_indices = cold_start.apply(
+                strategy_name=config.cold_start_strategy,
+                n_samples=n_init,
+                all_indices=all_indices,
+            )
+
+            self.unlabeled_indices = [
+                i for i in all_indices if i not in self.labeled_indices
+            ]
+
+            self.logger.info(
+                f"RL AL initialized with {len(self.labeled_indices)} labeled "
+                f"and {len(self.unlabeled_indices)} unlabeled samples"
+            )
+
 
         # --------------------
         # Tracking
@@ -184,11 +201,10 @@ class ActiveLearningSystemRL:
 
         # Evaluate
         metrics = self.main_model.evaluate(self.dataset_val)
-        dice = metrics["dice"]
+        f1 = metrics["f1"]
 
-        # Reward
-        reward = 0.0 if self.prev_dice is None else dice - self.prev_dice
-        self.prev_dice = dice
+        reward = 0.0 if self.prev_f1 is None else f1 - self.prev_f1
+        self.prev_f1 = f1
 
         # Policy update
         self.reward_baseline = (
