@@ -36,6 +36,7 @@ class ActiveLearningConfig:
     task: str = "segmentation"  # detection | segmentation
     use_cuda: bool = True
 
+    batch_size: int = 8
     lr: float = 1e-3
     momentum: float = 0.9
     weight_decay: float = 1e-4
