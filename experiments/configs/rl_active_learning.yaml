@@ -6,23 +6,29 @@ dataset_name: "al_experiment"
 num_classes: 2  # Including background
 img_size: 256
 
-gpu: 0
+task: segmentation
+num_classes: 2
+
 seed: 42
+use_cuda: true
 
-init_pct: 0.15
-al_cycles: 10
-al_budget: 10
+initial_labeled: 45
+skip_cold_start: true
 
-batch_size: 4
-workers: 4
-lr: 1e-3
+use_rl: true
+cold_start_strategy: simple_diversity
+query_strategy: rl_policy
 
-oracle_epochs: 20
+al_cycles: 5
+al_budget: 5
+
+oracle_epochs: 5
 cycle_epochs: 10
 
+policy_lr: 0.0001
 policy_hidden: 256
-policy_lr: 1e-4
-policy_temp: 1.0
 entropy_beta: 0.01
-candidate_pool: 200
+
+lr: 0.001
+batch_size: 8
 results_dir: ./results/rl_active_learning/
