@@ -265,9 +265,9 @@ class ActiveLearningSystemRL:
         # Warm-up
         labeled_dataset = Subset(self.dataset_train, self.labeled_indices)
         for ep in range(self.config.initial_training_epoch):
-            self.main_model.train_epoch(labeled_dataset, ep)
+            self.main_model.train_epoch(labeled_dataset, ep, self.config.initial_training_epoch)
 
-        self.prev_dice = self.main_model.evaluate(self.dataset_val)["dice"]
+        self.prev_f1 = self.main_model.evaluate(self.dataset_val)["f1"]
 
         for cycle in range(self.config.al_cycles):
             self.logger.info(f"RL Cycle {cycle + 1}")
