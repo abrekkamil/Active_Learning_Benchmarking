@@ -2,7 +2,7 @@ import torch
 import torch.nn.functional as F
 import numpy as np
 import time
-from typing import List, Dict, Any
+from typing import List, Dict, Tuple, Optional
 
 from torch.utils.data import DataLoader, Subset
 
@@ -114,7 +114,20 @@ class ActiveLearningSystemRL:
         self.logger.info(
             f"RL AL initialized with {len(self.labeled_indices)} labeled samples"
         )
+        # --------------------
+        # Train oracle model (ONCE)
+        # --------------------
+        self.logger.info("Training oracle model on initial labeled set")
 
+        oracle_dataset = Subset(self.dataset_train, self.labeled_indices)
+        for ep in range(self.config.oracle_epochs):
+            self.oracle_model.train_epoch(
+                oracle_dataset, ep, self.config.oracle_epochs
+            )
+
+        self.oracle_model.eval()
+        for p in self.oracle_model.parameters():
+            p.requires_grad = False
     # ==========================================================
     # Feature + uncertainty → state
     # ==========================================================
@@ -124,8 +137,8 @@ class ActiveLearningSystemRL:
         returns: [B, 1027]
         """
         with torch.no_grad():
-            feats = self.oracle_model.model.get_bottleneck_features(images)
-            logits = self.oracle_model.model(images)
+            feats = self.oracle_model.get_bottleneck_features(images)
+            logits = self.oracle_model(images)
 
             probs = F.softmax(logits, dim=1)
             entropy = -(probs * torch.log(probs + 1e-8)).sum(dim=1).mean(dim=[1, 2])
@@ -142,9 +155,9 @@ class ActiveLearningSystemRL:
     # ==========================================================
     # RL query step
     # ==========================================================
-    def query(self, budget: int) -> List[int]:
+    def query(self, budget: int) -> Tuple[List[int], Optional[torch.Tensor], Optional[torch.Tensor]]:
         if len(self.unlabeled_indices) == 0:
-            return []
+            return [], None, None
 
         pool = np.random.choice(
             self.unlabeled_indices,
@@ -165,7 +178,7 @@ class ActiveLearningSystemRL:
             images = images.to(self.device)
             states.append(self._compute_state(images))
 
-        states = torch.cat(states, dim=0)
+        states = torch.cat(states, dim=0).to(self.device)
 
         states = states.detach()        
         logits = self.policy(states)
@@ -176,18 +189,19 @@ class ActiveLearningSystemRL:
             probs, num_samples=min(budget, len(pool)), replacement=False
         )
 
-        self.log_prob_sum = torch.log(probs[selected_pos]).sum()
-        self.entropy = -(probs * torch.log(probs + 1e-8)).sum()
+        chosen = probs[selected_pos].clamp_min(1e-12)
+        log_prob_sum = torch.log(chosen).sum()
+        entropy = -(probs * torch.log(probs + 1e-8)).sum()
 
         selected_indices = [pool[i] for i in selected_pos.tolist()]
-        return selected_indices
+        return selected_indices, log_prob_sum, entropy
 
     # ==========================================================
     # One AL cycle
     # ==========================================================
     def run_cycle(self):
         # Query
-        new_indices = self.query(self.config.query_size)
+        new_indices, log_prob_sum, entropy = self.query(self.config.query_size)
 
         self.labeled_indices.extend(new_indices)
         self.unlabeled_indices = [
@@ -203,7 +217,7 @@ class ActiveLearningSystemRL:
         metrics = self.main_model.evaluate(self.dataset_val)
         self.logger.info(
             f"[VAL] Dice={metrics['dice']:.4f} | "
-            f"IoU={metrics.get('f1', 0):.4f} | "
+            f"F1={metrics.get('f1', 0):.4f} | "
             f"IoU={metrics.get('mean_iou', 0):.4f} | "
             f"PixelAcc={metrics.get('pixel_acc', 0):.4f} | "
             f"Labeled={len(self.labeled_indices)}"
@@ -213,20 +227,19 @@ class ActiveLearningSystemRL:
         reward = 0.0 if self.prev_f1 is None else f1 - self.prev_f1
         self.prev_f1 = f1
 
-        # Policy update
-        self.reward_baseline = (
-            self.baseline_momentum * self.reward_baseline
-            + (1 - self.baseline_momentum) * reward
-        )
-
         # Policy update ONLY if a query actually happened
-        if hasattr(self, "log_prob_sum") and self.log_prob_sum is not None:
-
+        if log_prob_sum is not None:
             advantage = reward - self.reward_baseline
-            loss = -(advantage * self.log_prob_sum) - self.entropy_beta * self.entropy
+            # Policy update
+            self.reward_baseline = (
+                self.baseline_momentum * self.reward_baseline
+                + (1 - self.baseline_momentum) * reward
+            )
+            loss = -(advantage * log_prob_sum) - self.entropy_beta * entropy
 
             self.policy_optimizer.zero_grad()
             loss.backward()
+            torch.nn.utils.clip_grad_norm_(self.policy.parameters(), max_norm=1.0)
             self.policy_optimizer.step()
 
         else:
