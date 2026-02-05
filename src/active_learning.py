@@ -174,7 +174,6 @@ class ActiveLearningSystem:
             # ✅ LOG AFTER EACH EPOCH
             self._log_metrics(
                 epoch=epoch,
-                global_epoch=global_epoch,
                 train_time=epoch_time,
                 train_metrics=train_metrics,
                 eval_metrics=eval_metrics,
