@@ -7,7 +7,7 @@ from sklearn.cluster import KMeans
 import cv2
 import torch.nn.functional as F
 
-
+## TODO: Add clipIQA model for image quality assessment
 class ColdStartStrategies:
     """Implement various cold start initialization strategies."""
     
