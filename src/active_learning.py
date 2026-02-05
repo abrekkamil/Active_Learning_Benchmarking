@@ -177,7 +177,6 @@ class ActiveLearningSystem:
                 train_time=epoch_time,
                 train_metrics=train_metrics,
                 eval_metrics=eval_metrics,
-                labeled_samples=len(self.labeled_indices),
             )
             self.save_results()
             cycle_metrics.append(eval_metrics)
