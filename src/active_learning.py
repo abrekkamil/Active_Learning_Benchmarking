@@ -138,49 +138,54 @@ class ActiveLearningSystem:
             f"{len(self.unlabeled_indices)} unlabeled"
         )
     def train(self, epochs: Optional[int] = None):
-        """Train model on current labeled set."""
         if epochs is None:
             epochs = self.config.epochs_per_cycle
-        
+
         labeled_dataset = Subset(self.dataset_train, self.labeled_indices)
-        
+
         print(f"\nTraining cycle {self.cycle} with {len(self.labeled_indices)} samples")
-        
+
         cycle_metrics = []
+
         for epoch in range(epochs):
-            # Train one epoch
             epoch_start = time.time()
-            
+
             # Train
             train_metrics = self.model.train_epoch(
-                labeled_dataset, 
+                labeled_dataset,
                 epoch + self.cycle * epochs,
                 epochs
             )
-            
+
             # Evaluate
             eval_metrics = self.model.evaluate(self.dataset_val)
-            
+
             epoch_time = time.time() - epoch_start
+            global_epoch = epoch + self.cycle * epochs
+
             self.logger.info(
-                f"[VAL] Dice={eval_metrics['dice']:.4f} | "
+                f"Dice={eval_metrics['dice']:.4f} | "
                 f"F1={eval_metrics.get('f1', 0):.4f} | "
                 f"IoU={eval_metrics.get('mean_iou', 0):.4f} | "
                 f"PixelAcc={eval_metrics.get('pixel_acc', 0):.4f} | "
                 f"Labeled={len(self.labeled_indices)}"
             )
-            # Log metrics
+
+            # ✅ LOG AFTER EACH EPOCH
             self._log_metrics(
+                cycle=self.cycle,
                 epoch=epoch,
+                global_epoch=global_epoch,
                 train_time=epoch_time,
                 train_metrics=train_metrics,
-                eval_metrics=eval_metrics
+                eval_metrics=eval_metrics,
+                labeled_samples=len(self.labeled_indices),
             )
-            
+            self.save_results()
             cycle_metrics.append(eval_metrics)
-            
-            # Save checkpoints
-            current_score = eval_metrics["dice"]  # or "mean_iou"
+
+            # Save checkpoint
+            current_score = eval_metrics["dice"]
             if current_score > self.best_score:
                 self.best_score = current_score
                 save_checkpoint(
@@ -191,7 +196,7 @@ class ActiveLearningSystem:
                     is_best=True,
                     config=self.config
                 )
-        
+
         self.cycle += 1
         return cycle_metrics
     
@@ -265,16 +270,23 @@ class ActiveLearningSystem:
         return all_metrics
     
     def _log_metrics(self, epoch, train_time, train_metrics, eval_metrics):
+        global_epoch = epoch + self.cycle * self.config.epochs_per_cycle
+
+        self.history.setdefault("epoch", []).append(epoch)
+        self.history.setdefault("global_epoch", []).append(global_epoch)
+        self.history.setdefault("cycle", []).append(self.cycle)
+
         self.history.setdefault("train_loss", []).append(train_metrics["train_loss"])
         self.history.setdefault("val_dice", []).append(eval_metrics["dice"])
         self.history.setdefault("val_iou", []).append(eval_metrics["mean_iou"])
         self.history.setdefault("labeled_count", []).append(len(self.labeled_indices))
+        self.history.setdefault("train_time", []).append(train_time)
 
         self.logger.info(
             f"Epoch {epoch+1} | "
             f"Loss: {train_metrics['train_loss']:.4f} | "
             f"Dice: {eval_metrics['dice']:.4f} | "
-            f"IoU: {eval_metrics['mean_iou']:.4f} | "
+            f"Mean IoU: {eval_metrics['mean_iou']:.4f} | "
             f"Labeled: {len(self.labeled_indices)}"
         )
 
@@ -282,18 +294,33 @@ class ActiveLearningSystem:
             log_to_wandb(
                 {
                     "epoch": epoch + 1,
+                    "global_epoch": global_epoch,
+                    "cycle": self.cycle,
                     "train_loss": train_metrics["train_loss"],
                     "val_dice": eval_metrics["dice"],
                     "val_iou": eval_metrics["mean_iou"],
                     "labeled_count": len(self.labeled_indices),
                 },
-                step=epoch + self.cycle * self.config.epochs_per_cycle,
+                step=global_epoch,
             )
 
     def save_results(self):
         results_path = os.path.join(
             self.config.results_dir,
-            f"{self.config.dataset_type}_{self.config.cold_start_strategy}_{self.config.query_strategy}.json"
+            f"{self.config.dataset_type}_"
+            f"{self.config.cold_start_strategy}_"
+            f"{self.config.query_strategy}.json"
         )
+
+        results = {
+            "config": self._config_to_dict(),
+            "history": self.history,
+        }
+
         with open(results_path, "w") as f:
-            json.dump(self.history, f, indent=2)
+            json.dump(results, f, indent=2)
+
+    def _config_to_dict(self):
+        # works for argparse.Namespace or simple config objects
+        return vars(self.config)
+    
