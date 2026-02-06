@@ -24,7 +24,7 @@ class ActiveLearningSystemRL:
     def __init__(self, config,  skip_cold_start: bool = False):
         self.config = config
         set_seed(config.seed)
-
+        self.cycle = 0
         self.device = torch.device(
             "cuda" if torch.cuda.is_available() and config.use_cuda else "cpu"
         )
@@ -273,7 +273,7 @@ class ActiveLearningSystemRL:
 
         self.prev_f1 = self.main_model.evaluate(self.dataset_val)["f1"]
 
-        for cycle in range(self.config.al_cycles):
+        for self.cycle in range(self.config.al_cycles):
             self.logger.info(f"\n=== Reinforcement AL Cycle {cycle + 1}/{self.config.al_cycles} ===")
             self.run_cycle()
 
