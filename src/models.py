@@ -206,7 +206,6 @@ class UNetModel:
 
                 # ---------- live display ----------
                 pbar.set_postfix(
-                    f1
                     dice=f"{np.mean(dices):.4f}",
                     iou=f"{np.mean(ious):.4f}",
                     f1=f"{f1_running:.4f}",
