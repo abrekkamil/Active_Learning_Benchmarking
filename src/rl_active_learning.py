@@ -3,6 +3,8 @@ import torch.nn.functional as F
 import numpy as np
 import time
 from typing import List, Dict, Tuple, Optional
+import os
+import json
 
 from torch.utils.data import DataLoader, Subset
 
@@ -28,7 +30,7 @@ class ActiveLearningSystemRL:
         )
         self.prev_f1 = None
 
-        self.logger = setup_logging(f"{config.dataset_name}_RL")
+        self.logger = setup_logging(f"{config.experiment_name}_RL")
 
         # --------------------
         # Datasets
@@ -211,18 +213,18 @@ class ActiveLearningSystemRL:
         # Train
         labeled_dataset = Subset(self.dataset_train, self.labeled_indices)
         for ep in range(self.config.epochs_per_cycle):
-            self.main_model.train_epoch(labeled_dataset, ep, self.config.epochs_per_cycle)
+            train_metrics = self.main_model.train_epoch(labeled_dataset, ep, self.config.epochs_per_cycle)
+            eval_metrics = self.main_model.evaluate(self.dataset_val)
 
-        # Evaluate
-        metrics = self.main_model.evaluate(self.dataset_val)
-        self.logger.info(
-            f"[VAL] Dice={metrics['dice']:.4f} | "
-            f"F1={metrics.get('f1', 0):.4f} | "
-            f"IoU={metrics.get('mean_iou', 0):.4f} | "
-            f"PixelAcc={metrics.get('pixel_acc', 0):.4f} | "
-            f"Labeled={len(self.labeled_indices)}"
-        )
-        f1 = metrics["f1"]
+            self._log_metrics(
+                epoch=ep,
+                train_metrics=train_metrics,
+                eval_metrics=eval_metrics,
+            )
+
+            self.save_results()
+
+        f1 = eval_metrics["f1"]
 
         reward = 0.0 if self.prev_f1 is None else f1 - self.prev_f1
         self.prev_f1 = f1
@@ -245,29 +247,8 @@ class ActiveLearningSystemRL:
         else:
             self.logger.info("No policy update (no query this cycle)")
 
-
-        metrics["reward"] = reward
-        metrics["labeled"] = len(self.labeled_indices)
-        logged_metrics = {
-            "cycle": len(self.history),
-            **metrics,
-            "reward": reward,
-            "labeled": len(self.labeled_indices),
-        }
-
-        self.history.append(logged_metrics)
-        if self.config.use_wandb:
-            wandb.log(
-                {
-                    "val/dice": metrics["dice"],
-                    "val/iou": metrics.get("mean_iou", 0),
-                    "val/pixel_acc": metrics.get("pixel_acc", 0),
-                    "rl/reward": reward,
-                    "pool/labeled": len(self.labeled_indices),
-                },
-                step=len(self.history),
-            )
-        return metrics
+        self.logger.info("Reward: {:.4f} | Baseline: {:.4f} | Advantage: {:.4f}".format(
+            reward, self.reward_baseline, advantage))
 
     # ==========================================================
     # Full run
@@ -278,12 +259,85 @@ class ActiveLearningSystemRL:
         # Warm-up
         labeled_dataset = Subset(self.dataset_train, self.labeled_indices)
         for ep in range(self.config.initial_training_epoch):
-            self.main_model.train_epoch(labeled_dataset, ep, self.config.initial_training_epoch)
+            train_metrics = self.main_model.train_epoch(labeled_dataset, ep, self.config.initial_training_epoch)
+
+            eval_metrics = self.main_model.evaluate(self.dataset_val)
+
+            self._log_metrics(
+                epoch=ep,
+                train_metrics=train_metrics,
+                eval_metrics=eval_metrics,
+            )
+
+            self.save_results()
 
         self.prev_f1 = self.main_model.evaluate(self.dataset_val)["f1"]
 
         for cycle in range(self.config.al_cycles):
-            self.logger.info(f"RL Cycle {cycle + 1}")
+            self.logger.info(f"\n=== Reinforcement AL Cycle {cycle + 1}/{self.config.al_cycles} ===")
             self.run_cycle()
 
         return self.history
+
+
+    def _log_reward(self, reward=None):
+        self.history.setdefault("Reward", []).append(reward))
+        self.logger.info(f"=== Reward {reward} ===")
+
+    def _log_metrics(self, epoch, train_metrics, eval_metrics):
+        global_epoch = epoch + self.cycle * self.config.epochs_per_cycle
+
+        self.history.setdefault("epoch", []).append(epoch)
+        self.history.setdefault("global_epoch", []).append(global_epoch)
+        self.history.setdefault("cycle", []).append(self.cycle)
+
+        self.history.setdefault("train_loss", []).append(train_metrics["train_loss"])
+        self.history.setdefault("val_dice", []).append(eval_metrics["dice"])
+        self.history.setdefault("val_F1", []).append(eval_metrics["f1"])
+        self.history.setdefault("val_mean_iou", []).append(eval_metrics["mean_iou"])
+        self.history.setdefault("labeled_count", []).append(len(self.labeled_indices))
+
+        self.logger.info(
+            f"Epoch {epoch+1} | "
+            f"Loss: {train_metrics['train_loss']:.4f} | "
+            f"F1: {eval_metrics.get('f1', 0):.4f} | "
+            f"Dice: {eval_metrics['dice']:.4f} | "
+            f"Mean IoU: {eval_metrics['mean_iou']:.4f} | "
+            f"Labeled: {len(self.labeled_indices)}"
+        )
+
+        if self.config.use_wandb:
+            log_to_wandb(
+                {
+                    "epoch": epoch + 1,
+                    "global_epoch": global_epoch,
+                    "cycle": self.cycle,
+                    "train_loss": train_metrics["train_loss"],
+                    "val_dice": eval_metrics["dice"],
+                    "val_iou": eval_metrics["mean_iou"],
+                    "labeled_count": len(self.labeled_indices),
+                },
+                step=global_epoch,
+            )
+
+    def save_results(self):
+        results_path = os.path.join(
+            self.config.results_dir,
+            f"{self.config.experiment_name}_"
+            f"{self.config.dataset_type}_"
+            f"{self.config.cold_start_strategy}_"
+            f"{self.config.query_strategy}.json"
+        )
+
+        results = {
+            "config": self._config_to_dict(),
+            "history": self.history,
+        }
+
+        with open(results_path, "w") as f:
+            json.dump(results, f, indent=2)
+
+    def _config_to_dict(self):
+        # works for argparse.Namespace or simple config objects
+        return vars(self.config)
+    
