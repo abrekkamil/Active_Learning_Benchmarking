@@ -279,6 +279,7 @@ class ActiveLearningSystem:
         self.logger.info(
             f"Epoch {epoch+1} | "
             f"Loss: {train_metrics['train_loss']:.4f} | "
+            f"F1: {eval_metrics.get('f1', 0):.4f} | "
             f"Dice: {eval_metrics['dice']:.4f} | "
             f"Mean IoU: {eval_metrics['mean_iou']:.4f} | "
             f"Labeled: {len(self.labeled_indices)}"
