@@ -281,7 +281,7 @@ class ActiveLearningSystemRL:
 
 
     def _log_reward(self, reward=None):
-        self.history.setdefault("Reward", []).append(reward))
+        self.history.setdefault("Reward", []).append(reward)
         self.logger.info(f"=== Reward {reward} ===")
 
     def _log_metrics(self, epoch, train_metrics, eval_metrics):
