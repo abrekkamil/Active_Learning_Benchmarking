@@ -3,7 +3,7 @@
 dataset: "DeepCrack"
 dataset_type: "deepcrack"
 data_dir: "/home3/vzcl68/Datasets/DeepCrack/"
-dataset_name: "al_experiment"
+experiment_name: "al_experiment"
 num_classes: 2  # Including background
 img_size: 256
 

@@ -301,6 +301,7 @@ class ActiveLearningSystem:
     def save_results(self):
         results_path = os.path.join(
             self.config.results_dir,
+            f"{self.config.experiment_name}_"
             f"{self.config.dataset_type}_"
             f"{self.config.cold_start_strategy}_"
             f"{self.config.query_strategy}.json"

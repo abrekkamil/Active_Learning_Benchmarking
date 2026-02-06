@@ -6,13 +6,13 @@ from typing import List, Optional, Dict, Any
 @dataclass
 class ActiveLearningConfig:
     """Configuration for active learning experiments."""
-
+    experiment_name: str = "experiment_1"
     # =====================
     # Dataset
     # =====================
     dataset: str = "coco"
     data_dir: str = "/path/to/dataset"
-    dataset_name: str = "experiment_1"
+    
     dataset_type: str = "deepcrack"
     num_classes: int = 2
     img_size: int = 256
