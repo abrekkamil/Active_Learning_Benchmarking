@@ -59,11 +59,7 @@ class ActiveLearningSystem:
         # Tracking
         self.cycle = 0
         self.best_score = 0.0
-        self.history = {
-            'val_score': [],
-            'labeled_count': [],
-            'cycle_metrics': []
-        }
+        self.history = {}
         
         print(f"Active Learning System initialized with:")
         print(f"  Device: {self.device}")
@@ -275,7 +271,8 @@ class ActiveLearningSystem:
 
         self.history.setdefault("train_loss", []).append(train_metrics["train_loss"])
         self.history.setdefault("val_dice", []).append(eval_metrics["dice"])
-        self.history.setdefault("val_iou", []).append(eval_metrics["mean_iou"])
+        self.history.setdefault("val_F1", []).append(eval_metrics["f1"])
+        self.history.setdefault("val_mean_iou", []).append(eval_metrics["mean_iou"])
         self.history.setdefault("labeled_count", []).append(len(self.labeled_indices))
         self.history.setdefault("train_time", []).append(train_time)
 
