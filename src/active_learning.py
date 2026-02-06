@@ -157,15 +157,6 @@ class ActiveLearningSystem:
             eval_metrics = self.model.evaluate(self.dataset_val)
 
             epoch_time = time.time() - epoch_start
-            global_epoch = epoch + self.cycle * epochs
-
-            self.logger.info(
-                f"Dice={eval_metrics['dice']:.4f} | "
-                f"F1={eval_metrics.get('f1', 0):.4f} | "
-                f"IoU={eval_metrics.get('mean_iou', 0):.4f} | "
-                f"PixelAcc={eval_metrics.get('pixel_acc', 0):.4f} | "
-                f"Labeled={len(self.labeled_indices)}"
-            )
 
             # ✅ LOG AFTER EACH EPOCH
             self._log_metrics(
