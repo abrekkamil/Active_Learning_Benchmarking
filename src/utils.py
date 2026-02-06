@@ -108,14 +108,14 @@ def save_checkpoint(
         Path to saved checkpoint
     """
     # Create checkpoint directory
-    checkpoint_dir = Path(config.checkpoint_dir) / config.dataset_name
+    checkpoint_dir = Path(config.checkpoint_dir) / config.experiment_name
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
     
     # Determine filename
     if is_best:
-        filename = f"{config.dataset_name}_best.pth"
+        filename = f"{config.experiment_name}_best.pth"
     else:
-        filename = f"{config.dataset_name}_cycle{cycle}_epoch{epoch}.pth"
+        filename = f"{config.experiment_name}_cycle{cycle}_epoch{epoch}.pth"
     
     checkpoint_path = checkpoint_dir / filename
     
@@ -137,7 +137,7 @@ def save_checkpoint(
     
     # Also save as latest
     if not is_best:
-        latest_path = checkpoint_dir / f"{config.dataset_name}_latest.pth"
+        latest_path = checkpoint_dir / f"{config.experiment_name}_latest.pth"
         torch.save(checkpoint, latest_path)
     
     logging.info(f"Checkpoint saved to {checkpoint_path}")

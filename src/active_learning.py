@@ -178,7 +178,7 @@ class ActiveLearningSystem:
             cycle_metrics.append(eval_metrics)
 
             # Save checkpoint
-            current_score = eval_metrics["dice"]
+            current_score = eval_metrics["f1"] if "f1" in eval_metrics else eval_metrics["dice"]
             if current_score > self.best_score:
                 self.best_score = current_score
                 save_checkpoint(

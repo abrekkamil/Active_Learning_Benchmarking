@@ -138,6 +138,7 @@ class UNetModel:
     
     def _compute_iou_and_dice(self, preds, targets):
         ious, dices = [], []
+        tp = fp = fn = 0
 
         for c in range(1, self.num_classes):  # skip background
             p = preds == c
@@ -147,6 +148,10 @@ class UNetModel:
             union = (p | t).sum().item()
             denom = p.sum().item() + t.sum().item()
 
+            tp += inter
+            fp += (p & ~t).sum().item()
+            fn += (~p & t).sum().item()
+
             if union > 0:
                 ious.append(inter / union)
             if denom > 0:
@@ -155,6 +160,7 @@ class UNetModel:
         return (
             float(np.mean(ious)) if ious else 0.0,
             float(np.mean(dices)) if dices else 0.0,
+            tp, fp, fn,
         )
 
     def evaluate(self, dataset) -> Dict[str, float]:
@@ -173,7 +179,7 @@ class UNetModel:
 
         with torch.no_grad():
             pbar = tqdm(loader, desc="Validation", leave=False)
-
+            tp = fp = fn = 0
             for images, masks in pbar:
                 images = images.to(self.device)
                 masks = masks.to(self.device)
@@ -187,18 +193,23 @@ class UNetModel:
                 # ---------- segmentation metrics ----------
                 pixel_accs.append((preds == masks).float().mean().item())
 
-                miou, mdice = self._compute_iou_and_dice(preds, masks)
+                miou, mdice, tp_i, fp_i, fn_i = self._compute_iou_and_dice(preds, masks)
                 ious.append(miou)
                 dices.append(mdice)
-
+                tp += tp_i
+                fp += fp_i
+                fn += fn_i
+                f1_running = (2 * tp) / (2 * tp + fp + fn + 1e-8)
                 # ---------- pixel-wise metrics ----------
                 all_preds.append(preds.cpu().numpy().reshape(-1))
                 all_targets.append(masks.cpu().numpy().reshape(-1))
 
                 # ---------- live display ----------
                 pbar.set_postfix(
+                    f1
                     dice=f"{np.mean(dices):.4f}",
                     iou=f"{np.mean(ious):.4f}",
+                    f1=f"{f1_running:.4f}",
                 )
 
         # ---------- aggregate pixel-wise ----------
