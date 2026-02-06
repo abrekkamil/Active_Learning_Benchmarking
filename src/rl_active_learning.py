@@ -111,7 +111,7 @@ class ActiveLearningSystemRL:
         self.prev_dice = None
         self.reward_baseline = 0.0
         self.baseline_momentum = 0.9
-        self.history: List[Dict[str, float]] = []
+        self.history = {}
 
         self.logger.info(
             f"RL AL initialized with {len(self.labeled_indices)} labeled samples"
