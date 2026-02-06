@@ -274,7 +274,7 @@ class ActiveLearningSystemRL:
         self.prev_f1 = self.main_model.evaluate(self.dataset_val)["f1"]
 
         for self.cycle in range(self.config.al_cycles):
-            self.logger.info(f"\n=== Reinforcement AL Cycle {cycle + 1}/{self.config.al_cycles} ===")
+            self.logger.info(f"\n=== Reinforcement AL Cycle {self.cycle + 1}/{self.config.al_cycles} ===")
             self.run_cycle()
 
         return self.history
