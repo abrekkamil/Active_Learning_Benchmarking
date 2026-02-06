@@ -33,7 +33,7 @@ class ActiveLearningSystem:
         )
         
         # Setup logging
-        self.logger = setup_logging(config.dataset_name)
+        self.logger = setup_logging(config.experiment_name)
         
         # Load datasets
         self.num_classes = config.num_classes
