@@ -2,6 +2,7 @@ import torch
 import torch.nn.functional as F
 import numpy as np
 import time
+import datetime
 from typing import List, Dict, Tuple, Optional
 import os
 import json
@@ -249,6 +250,8 @@ class ActiveLearningSystemRL:
 
         self.logger.info("Reward: {:.4f} | Baseline: {:.4f} | Advantage: {:.4f}".format(
             reward, self.reward_baseline, advantage))
+        
+        self.cycle += 1
 
     # ==========================================================
     # Full run
@@ -270,11 +273,12 @@ class ActiveLearningSystemRL:
             )
 
             self.save_results()
+            self.cycle += 1
 
         self.prev_f1 = self.main_model.evaluate(self.dataset_val)["f1"]
 
-        for self.cycle in range(self.config.al_cycles):
-            self.logger.info(f"\n=== Reinforcement AL Cycle {self.cycle + 1}/{self.config.al_cycles} ===")
+        for cycle in range(self.config.al_cycles):
+            self.logger.info(f"\n=== Reinforcement AL Cycle {cycle + 1}/{self.config.al_cycles} ===")
             self.run_cycle()
 
         return self.history
@@ -321,12 +325,22 @@ class ActiveLearningSystemRL:
             )
 
     def save_results(self):
+        date_folder = datetime.now().strftime("%m_%d")
+        results_dir = os.path.join(self.config.results_dir, date_folder)
+
+        # create folder if it doesn't exist
+        os.makedirs(results_dir, exist_ok=True)
+
+        # --- time for filename (HHMM) ---
+        time_stamp = datetime.now().strftime("%H%M")
+
         results_path = os.path.join(
-            self.config.results_dir,
+            results_dir,
             f"{self.config.experiment_name}_"
             f"{self.config.dataset_type}_"
             f"{self.config.cold_start_strategy}_"
-            f"{self.config.query_strategy}.json"
+            f"{self.config.query_strategy}_"
+            f"{time_stamp}.json"
         )
 
         results = {

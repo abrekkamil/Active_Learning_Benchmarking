@@ -7,7 +7,7 @@ import glob
 import re
 from torch.utils.data import Subset
 from typing import List, Tuple, Dict, Any, Optional
-
+import datetime
 from .cold_start_strategies import ColdStartStrategies
 from .query_strategies import QueryStrategies
 from .models import MaskRCNNModel, UNetModel
@@ -291,12 +291,22 @@ class ActiveLearningSystem:
             )
 
     def save_results(self):
+        date_folder = datetime.now().strftime("%m_%d")
+        results_dir = os.path.join(self.config.results_dir, date_folder)
+
+        # create folder if it doesn't exist
+        os.makedirs(results_dir, exist_ok=True)
+
+        # --- time for filename (HHMM) ---
+        time_stamp = datetime.now().strftime("%H%M")
+
         results_path = os.path.join(
-            self.config.results_dir,
+            results_dir,
             f"{self.config.experiment_name}_"
             f"{self.config.dataset_type}_"
             f"{self.config.cold_start_strategy}_"
-            f"{self.config.query_strategy}.json"
+            f"{self.config.query_strategy}_"
+            f"{time_stamp}.json"
         )
 
         results = {
