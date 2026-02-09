@@ -162,6 +162,8 @@ class ActiveLearningSystemRL:
         if len(self.unlabeled_indices) == 0:
             return [], None, None
 
+        if self.config.query_size <= 1:
+            budget = int(self.config.query_size * len(self.dataset_train))
         pool = np.random.choice(
             self.unlabeled_indices,
             size=len(self.unlabeled_indices),

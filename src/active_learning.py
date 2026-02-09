@@ -187,7 +187,10 @@ class ActiveLearningSystem:
     def query(self, query_size: Optional[int] = None):
         """Query new samples using active learning strategy."""
         if query_size is None:
-            query_size = self.config.query_size
+            if self.config.query_size <= 1:
+                query_size = int(self.config.query_size * len(self.dataset_train))
+            else:
+                query_size = self.config.query_size
         
         if len(self.unlabeled_indices) == 0:
             self.logger.warning("No unlabeled samples left!")
