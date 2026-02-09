@@ -327,14 +327,14 @@ class ActiveLearningSystemRL:
             )
 
     def save_results(self):
-        date_folder = datetime.now().strftime("%m_%d")
+        date_folder = datetime.datetime.now().strftime("%m_%d")
         results_dir = os.path.join(self.config.results_dir, date_folder)
 
         # create folder if it doesn't exist
         os.makedirs(results_dir, exist_ok=True)
 
         # --- time for filename (HHMM) ---
-        time_stamp = datetime.now().strftime("%H%M")
+        time_stamp = datetime.datetime.now().strftime("%H%M")
 
         results_path = os.path.join(
             results_dir,
