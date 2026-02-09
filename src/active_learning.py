@@ -34,7 +34,7 @@ class ActiveLearningSystem:
         
         # Setup logging
         self.logger = setup_logging(config.experiment_name)
-        
+        self._init_results_path()
         # Load datasets
         self.num_classes = config.num_classes
         self.dataset_train = load_dataset(config, split="train")
@@ -317,8 +317,24 @@ class ActiveLearningSystem:
             "history": self.history,
         }
 
-        with open(results_path, "w") as f:
+        with open(self.results_path, "w") as f:
             json.dump(results, f, indent=2)
+
+    def _init_results_path(self):
+        date_folder = datetime.datetime.now().strftime("%m_%d")
+        results_dir = os.path.join(self.config.results_dir, date_folder)
+        os.makedirs(results_dir, exist_ok=True)
+
+        time_stamp = datetime.datetime.now().strftime("%H%M")
+
+        self.results_path = os.path.join(
+            results_dir,
+            f"{self.config.experiment_name}_"
+            f"{self.config.dataset_type}_"
+            f"{self.config.cold_start_strategy}_"
+            f"{self.config.query_strategy}_"
+            f"{time_stamp}.json"
+        )
 
     def _config_to_dict(self):
         # works for argparse.Namespace or simple config objects
