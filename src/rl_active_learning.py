@@ -163,7 +163,7 @@ class ActiveLearningSystemRL:
 
         pool = np.random.choice(
             self.unlabeled_indices,
-            size=min(len(self.unlabeled_indices), getattr(self.config, "candidate_pool", 128)),
+            size=len(self.unlabeled_indices),
             replace=False,
         ).tolist()
 
