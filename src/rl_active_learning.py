@@ -275,7 +275,7 @@ class ActiveLearningSystemRL:
             )
 
             self.save_results()
-            self.cycle += 1
+        self.cycle += 1
 
         self.prev_f1 = self.main_model.evaluate(self.dataset_val)["f1"]
 
@@ -334,7 +334,7 @@ class ActiveLearningSystemRL:
 
         with open(self.results_path, "w") as f:
             json.dump(results, f, indent=2)
-            
+
     def _init_results_path(self):
         date_folder = datetime.datetime.now().strftime("%m_%d")
         results_dir = os.path.join(self.config.results_dir, date_folder)
