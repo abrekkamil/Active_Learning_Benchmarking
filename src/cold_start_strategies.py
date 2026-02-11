@@ -223,7 +223,7 @@ class ColdStartStrategies:
         # Modify for detection-like uncertainty (optional)
         # You can modify this based on your specific needs
         num_features = weak_model.fc.in_features
-        weak_model.fc = torch.nn.Linear(num_features, self.num_classes)
+        weak_model.fc = torch.nn.Linear(num_features, self.config.num_classes)
         
         if torch.cuda.is_available():
             weak_model = weak_model.cuda()
