@@ -212,6 +212,23 @@ class ColdStartStrategies:
         selected_indices = np.argsort(uncertainties)[-n_labeled:].tolist()
         
         return [all_indices[i] for i in selected_indices]
+    def _create_weak_model(self):
+        """Create a weak model for initial uncertainty estimation"""
+        import torchvision.models as models
+        from torchvision.models import ResNet18_Weights
+        
+        # Use a smaller pretrained model as weak model
+        weak_model = models.resnet18(weights=ResNet18_Weights.IMAGENET1K_V1)
+        
+        # Modify for detection-like uncertainty (optional)
+        # You can modify this based on your specific needs
+        num_features = weak_model.fc.in_features
+        weak_model.fc = torch.nn.Linear(num_features, self.num_classes)
+        
+        if torch.cuda.is_available():
+            weak_model = weak_model.cuda()
+        
+        return weak_model
     
     def weak_supervision_sampling(self, all_indices, n_labeled):
         """Weak supervision using heuristic rules or pre-trained features"""
