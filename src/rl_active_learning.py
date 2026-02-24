@@ -246,10 +246,17 @@ class ActiveLearningSystemRL:
 
             self.save_results()
 
+        mean_iou = eval_metrics["mean_iou"]
+        dice = eval_metrics["dice"]
         f1 = eval_metrics["f1"]
+        score = dice + f1 + mean_iou
+        
 
-        reward = 0.0 if self.prev_f1 is None else f1 - self.prev_f1
-        self.prev_f1 = f1
+        if self.prev_score is None:
+            reward = 0.0
+        else:
+            reward = (score - self.prev_score) / (abs(self.prev_score) + 1e-8)
+        self.prev_score = score 
 
         # Policy update ONLY if a query actually happened
         if log_prob_sum is not None:
