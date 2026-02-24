@@ -177,12 +177,16 @@ class ActiveLearningSystemRL:
     # ==========================================================
     # RL query step
     # ==========================================================
-    def query(self, budget: int) -> Tuple[List[int], Optional[torch.Tensor], Optional[torch.Tensor]]:
+    def query(self, budget: int):
+
         if len(self.unlabeled_indices) == 0:
             return [], None, None
 
+        # If query_size given as ratio
         if self.config.query_size <= 1:
             budget = int(self.config.query_size * len(self.dataset_train))
+
+        # ---- Build pool ----
         pool = np.random.choice(
             self.unlabeled_indices,
             size=len(self.unlabeled_indices),
@@ -203,21 +207,45 @@ class ActiveLearningSystemRL:
             states.append(self._compute_state(images))
 
         states = torch.cat(states, dim=0).to(self.device)
+        states = states.detach()
 
-        states = states.detach()        
-        logits = self.policy(states)
+        # ==========================================================
+        # 🔥 Candidate Filtering (Reduce Action Space)
+        # ==========================================================
+        entropy_scores = states[:, -3]  # entropy component
 
-        probs = F.softmax(logits / self.policy_temp, dim=0)
+        candidate_ratio = getattr(self.config, "candidate_ratio", 0.4)
+        top_k = max(1, int(candidate_ratio * len(entropy_scores)))
+
+        _, candidate_idx = torch.topk(entropy_scores, top_k)
+
+        candidate_states = states[candidate_idx]
+        candidate_pool = [pool[i] for i in candidate_idx.tolist()]
+
+        # ==========================================================
+        # RL Policy over Candidates
+        # ==========================================================
+        logits = self.policy(candidate_states)
+
+        # Apply temperature
+        probs = F.softmax(logits.squeeze() / self.policy_temp, dim=0)
+
+        # Prevent numerical instability
+        probs = probs.clamp_min(1e-12)
 
         selected_pos = torch.multinomial(
-            probs, num_samples=min(budget, len(pool)), replacement=False
+            probs,
+            num_samples=min(budget, len(candidate_pool)),
+            replacement=False,
         )
 
-        chosen = probs[selected_pos].clamp_min(1e-12)
-        log_prob_sum = torch.log(chosen).sum()
-        entropy = -(probs * torch.log(probs + 1e-8)).sum()
+        chosen_probs = probs[selected_pos]
+        log_prob_sum = torch.log(chosen_probs).sum()
 
-        selected_indices = [pool[i] for i in selected_pos.tolist()]
+        entropy = -(probs * torch.log(probs)).sum()
+
+        selected_indices = [candidate_pool[i] for i in selected_pos.tolist()]
+
         return selected_indices, log_prob_sum, entropy
 
     # ==========================================================
@@ -225,6 +253,11 @@ class ActiveLearningSystemRL:
     # ==========================================================
     def run_cycle(self):
         # Query
+        self.policy_temp = max(
+        self.config.policy_temp_end,
+        self.config.policy_temp_start * (0.95 ** self.cycle)
+        )
+            
         new_indices, log_prob_sum, entropy = self.query(self.config.query_size)
 
         self.labeled_indices.extend(new_indices)
