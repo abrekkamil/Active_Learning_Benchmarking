@@ -29,6 +29,7 @@ class ActiveLearningSystemRL:
         self.device = torch.device(
             "cuda" if torch.cuda.is_available() and config.use_cuda else "cpu"
         )
+        self.prev_score = None
         self.prev_f1 = None
 
         self.logger = setup_logging(f"{config.experiment_name}_RL")
