@@ -187,7 +187,6 @@ class ActiveLearningSystemRL:
         if len(self.unlabeled_indices) == 0:
             return [], None, None, None
 
-        # ---- Build pool ----
         pool = np.random.choice(
             self.unlabeled_indices,
             size=len(self.unlabeled_indices),
@@ -210,10 +209,7 @@ class ActiveLearningSystemRL:
         states = torch.cat(states, dim=0).to(self.device)
         states = states.detach()
 
-        # ==========================================================
-        # 🔥 Candidate Filtering
-        # ==========================================================
-        entropy_scores = states[:, -3]
+        entropy_scores = states[:, -3]  # entropy component
 
         candidate_ratio = getattr(self.config, "candidate_ratio", 0.4)
         top_k = max(1, int(candidate_ratio * len(entropy_scores)))
@@ -223,29 +219,24 @@ class ActiveLearningSystemRL:
         candidate_states = states[candidate_idx]
         candidate_pool = [pool[i] for i in candidate_idx.tolist()]
 
-        # ==========================================================
-        # 🔥 Global State for Budget Decision
-        # ==========================================================
-        global_state = candidate_states.mean(dim=0)
 
-        # ==========================================================
-        # 🔥 Policy Forward
-        # ==========================================================
+        global_state = candidate_states.mean(dim=0)
         image_logits, budget_logits = self.policy(candidate_states, global_state)
 
-        # ------------------------
-        # Budget sampling
-        # ------------------------
-        budget_probs = F.softmax(budget_logits.squeeze(), dim=0)
-        budget_probs = budget_probs.clamp_min(1e-12)
+        budget_ratio = torch.sigmoid(budget_logits.squeeze())
 
-        budget_idx = torch.multinomial(budget_probs, 1).item()
-        budget = self.config.budget_options[budget_idx]
+        # Stability clamp (avoid 0 or full pool)
+        budget_ratio = torch.clamp(budget_ratio, 0.05, 0.5)
 
-        # ------------------------
-        # Image sampling
-        # ------------------------
-        image_probs = F.softmax(image_logits.squeeze() / self.policy_temp, dim=0)
+        budget = int(budget_ratio.item() * len(candidate_pool))
+        budget = max(1, budget)
+
+        log_prob_budget = torch.log(budget_ratio + 1e-12)
+
+        image_probs = F.softmax(
+            image_logits.squeeze() / self.policy_temp,
+            dim=0
+        )
         image_probs = image_probs.clamp_min(1e-12)
 
         selected_pos = torch.multinomial(
@@ -254,22 +245,23 @@ class ActiveLearningSystemRL:
             replacement=False,
         )
 
-        # ------------------------
-        # Log probabilities (both heads!)
-        # ------------------------
         log_prob_images = torch.log(image_probs[selected_pos]).sum()
-        log_prob_budget = torch.log(budget_probs[budget_idx])
 
         log_prob_sum = log_prob_images + log_prob_budget
 
         entropy_images = -(image_probs * torch.log(image_probs)).sum()
-        entropy_budget = -(budget_probs * torch.log(budget_probs)).sum()
+
+        p = budget_ratio
+        entropy_budget = -(p * torch.log(p + 1e-12) +
+                        (1 - p) * torch.log(1 - p + 1e-12))
 
         entropy = entropy_images + entropy_budget
 
-        selected_indices = [candidate_pool[i] for i in selected_pos.tolist()]
+        selected_indices = [
+            candidate_pool[i] for i in selected_pos.tolist()
+        ]
 
-        return selected_indices, log_prob_sum, entropy, budget  
+        return selected_indices, log_prob_sum, entropy, budget
 
     # ==========================================================
     # One AL cycle
