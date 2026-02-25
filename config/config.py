@@ -62,6 +62,9 @@ class ActiveLearningConfig:
     feature_batch: int = 64
     state_batch: int = 32
 
+    policy_temp_start: float = 1.5
+    policy_temp_end: float = 0.7
+    candidate_ratio: float = 0.4
     # =====================
     # Logging / Repro
     # =====================
