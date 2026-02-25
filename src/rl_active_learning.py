@@ -59,7 +59,11 @@ class ActiveLearningSystemRL:
         # RL policy
         # --------------------
         self.state_dim = 1024 + 3   # bottleneck + uncertainty
-        self.policy = PolicyNet(self.state_dim).to(self.device)
+        self.policy = PolicyNet(
+    self.state_dim,
+    hidden_dim=self.config.policy_hidden,
+    num_budget_options=len(self.config.budget_options),
+).to(self.device)
         self.policy_optimizer = torch.optim.Adam(
             self.policy.parameters(),
             lr=getattr(config, "policy_lr", 1e-4),
@@ -178,14 +182,10 @@ class ActiveLearningSystemRL:
     # ==========================================================
     # RL query step
     # ==========================================================
-    def query(self, budget: int):
+    def query(self, _):
 
         if len(self.unlabeled_indices) == 0:
-            return [], None, None
-
-        # If query_size given as ratio
-        if self.config.query_size <= 1:
-            budget = int(self.config.query_size * len(self.dataset_train))
+            return [], None, None, None
 
         # ---- Build pool ----
         pool = np.random.choice(
@@ -211,9 +211,9 @@ class ActiveLearningSystemRL:
         states = states.detach()
 
         # ==========================================================
-        # 🔥 Candidate Filtering (Reduce Action Space)
+        # 🔥 Candidate Filtering
         # ==========================================================
-        entropy_scores = states[:, -3]  # entropy component
+        entropy_scores = states[:, -3]
 
         candidate_ratio = getattr(self.config, "candidate_ratio", 0.4)
         top_k = max(1, int(candidate_ratio * len(entropy_scores)))
@@ -224,30 +224,52 @@ class ActiveLearningSystemRL:
         candidate_pool = [pool[i] for i in candidate_idx.tolist()]
 
         # ==========================================================
-        # RL Policy over Candidates
+        # 🔥 Global State for Budget Decision
         # ==========================================================
-        logits = self.policy(candidate_states)
+        global_state = candidate_states.mean(dim=0)
 
-        # Apply temperature
-        probs = F.softmax(logits.squeeze() / self.policy_temp, dim=0)
+        # ==========================================================
+        # 🔥 Policy Forward
+        # ==========================================================
+        image_logits, budget_logits = self.policy(candidate_states, global_state)
 
-        # Prevent numerical instability
-        probs = probs.clamp_min(1e-12)
+        # ------------------------
+        # Budget sampling
+        # ------------------------
+        budget_probs = F.softmax(budget_logits.squeeze(), dim=0)
+        budget_probs = budget_probs.clamp_min(1e-12)
+
+        budget_idx = torch.multinomial(budget_probs, 1).item()
+        budget = self.config.budget_options[budget_idx]
+
+        # ------------------------
+        # Image sampling
+        # ------------------------
+        image_probs = F.softmax(image_logits.squeeze() / self.policy_temp, dim=0)
+        image_probs = image_probs.clamp_min(1e-12)
 
         selected_pos = torch.multinomial(
-            probs,
+            image_probs,
             num_samples=min(budget, len(candidate_pool)),
             replacement=False,
         )
 
-        chosen_probs = probs[selected_pos]
-        log_prob_sum = torch.log(chosen_probs).sum()
+        # ------------------------
+        # Log probabilities (both heads!)
+        # ------------------------
+        log_prob_images = torch.log(image_probs[selected_pos]).sum()
+        log_prob_budget = torch.log(budget_probs[budget_idx])
 
-        entropy = -(probs * torch.log(probs)).sum()
+        log_prob_sum = log_prob_images + log_prob_budget
+
+        entropy_images = -(image_probs * torch.log(image_probs)).sum()
+        entropy_budget = -(budget_probs * torch.log(budget_probs)).sum()
+
+        entropy = entropy_images + entropy_budget
 
         selected_indices = [candidate_pool[i] for i in selected_pos.tolist()]
 
-        return selected_indices, log_prob_sum, entropy
+        return selected_indices, log_prob_sum, entropy, budget  
 
     # ==========================================================
     # One AL cycle

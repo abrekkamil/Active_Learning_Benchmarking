@@ -65,6 +65,9 @@ class ActiveLearningConfig:
     policy_temp_start: float = 1.5
     policy_temp_end: float = 0.7
     candidate_ratio: float = 0.4
+
+    budget_options: List[int] = field(default_factory=lambda: [8, 16, 24])
+    cost_lambda: float = 0.001
     # =====================
     # Logging / Repro
     # =====================
