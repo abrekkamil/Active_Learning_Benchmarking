@@ -561,19 +561,29 @@ class FeatureExtractor:
 # ===========================
 
 class PolicyNet(nn.Module):
-    """
-    Given state vectors [B, D], outputs logits [B] representing desirability.
-    We'll softmax across candidate pool to get a distribution over actions.
-    """
-    def __init__(self, state_dim: int, hidden_dim: int = 256):
+    def __init__(self, state_dim, hidden_dim, num_budget_options):
         super().__init__()
-        self.net = nn.Sequential(
+
+        self.encoder = nn.Sequential(
             nn.Linear(state_dim, hidden_dim),
             nn.ReLU(),
             nn.Linear(hidden_dim, hidden_dim),
             nn.ReLU(),
-            nn.Linear(hidden_dim, 1),
         )
 
-    def forward(self, states: torch.Tensor) -> torch.Tensor:
-        return self.net(states).squeeze(-1)  # [B]
+        self.image_head = nn.Linear(hidden_dim, 1)
+        self.budget_head = nn.Linear(hidden_dim, num_budget_options)
+
+    def forward(self, x, global_state=None):
+
+        h = self.encoder(x)
+
+        image_logits = self.image_head(h).squeeze(-1)
+
+        if global_state is not None:
+            g = self.encoder(global_state.unsqueeze(0))
+            budget_logits = self.budget_head(g)
+        else:
+            budget_logits = None
+
+        return image_logits, budget_logits
