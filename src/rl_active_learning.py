@@ -320,11 +320,12 @@ class ActiveLearningSystemRL:
         # Policy update ONLY if a query actually happened
         if log_prob_sum is not None:
             advantage = reward - self.reward_baseline
+            advantage = torch.tensor(advantage, device=self.device)
             # Policy update
             self.reward_baseline = (
             self.baseline_momentum * self.reward_baseline
             + (1 - self.baseline_momentum) * reward)
-            
+
             loss = -(advantage * log_prob_sum) - self.entropy_beta * entropy
 
             self.policy_optimizer.zero_grad()
