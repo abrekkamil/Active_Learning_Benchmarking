@@ -281,8 +281,11 @@ class ActiveLearningSystemRL:
         self.config.policy_temp_start * (0.95 ** self.cycle)
         )
             
-        new_indices, log_prob_sum, entropy = self.query(self.config.query_size)
-
+        new_indices, log_prob_sum, entropy, budget = self.query(None)
+        if len(new_indices) == 0:
+            self.logger.info("No samples selected this cycle.")
+            self.cycle += 1
+            return
         self.labeled_indices.extend(new_indices)
         self.unlabeled_indices = [
             i for i in self.unlabeled_indices if i not in new_indices
@@ -307,21 +310,21 @@ class ActiveLearningSystemRL:
         f1 = eval_metrics["f1"]
         score = dice + f1 + mean_iou
         
-
         if self.prev_score is None:
             reward = 0.0
         else:
             reward = (score - self.prev_score) / (abs(self.prev_score) + 1e-8)
         self.prev_score = score 
-
+        # Cost penalty
+        reward = reward - self.config.cost_lambda * budget
         # Policy update ONLY if a query actually happened
         if log_prob_sum is not None:
             advantage = reward - self.reward_baseline
             # Policy update
             self.reward_baseline = (
-                self.baseline_momentum * self.reward_baseline
-                + (1 - self.baseline_momentum) * reward
-            )
+            self.baseline_momentum * self.reward_baseline
+            + (1 - self.baseline_momentum) * reward)
+            
             loss = -(advantage * log_prob_sum) - self.entropy_beta * entropy
 
             self.policy_optimizer.zero_grad()
