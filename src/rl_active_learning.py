@@ -187,6 +187,9 @@ class ActiveLearningSystemRL:
         if len(self.unlabeled_indices) == 0:
             return [], None, None, None
 
+        # ==========================================================
+        # Build pool
+        # ==========================================================
         pool = np.random.choice(
             self.unlabeled_indices,
             size=len(self.unlabeled_indices),
@@ -209,7 +212,10 @@ class ActiveLearningSystemRL:
         states = torch.cat(states, dim=0).to(self.device)
         states = states.detach()
 
-        entropy_scores = states[:, -3]  # entropy component
+        # ==========================================================
+        # Candidate Filtering
+        # ==========================================================
+        entropy_scores = states[:, -3]
 
         candidate_ratio = getattr(self.config, "candidate_ratio", 0.4)
         top_k = max(1, int(candidate_ratio * len(entropy_scores)))
@@ -219,20 +225,44 @@ class ActiveLearningSystemRL:
         candidate_states = states[candidate_idx]
         candidate_pool = [pool[i] for i in candidate_idx.tolist()]
 
-
+        # ==========================================================
+        # Policy Forward
+        # ==========================================================
         global_state = candidate_states.mean(dim=0)
         image_logits, budget_logits = self.policy(candidate_states, global_state)
 
-        budget_ratio = torch.sigmoid(budget_logits.squeeze())
+        # ==========================================================
+        # --------- DYNAMIC QUERY SIZE ------------------------------
+        # ==========================================================
+        if getattr(self.config, "dynamic_query_size", False):
 
-        # Stability clamp (avoid 0 or full pool)
-        budget_ratio = torch.clamp(budget_ratio, 0.05, 0.5)
+            budget_ratio = torch.sigmoid(budget_logits.squeeze())
+            budget_ratio = torch.clamp(budget_ratio, 0.05, 0.5)
 
-        budget = int(budget_ratio.item() * len(candidate_pool))
-        budget = max(1, budget)
+            budget = int(budget_ratio.item() * len(candidate_pool))
+            budget = max(1, budget)
 
-        log_prob_budget = torch.log(budget_ratio + 1e-12)
+            log_prob_budget = torch.log(budget_ratio + 1e-12)
 
+            p = budget_ratio
+            entropy_budget = -(p * torch.log(p + 1e-12) +
+                            (1 - p) * torch.log(1 - p + 1e-12))
+
+        # ==========================================================
+        # --------- FIXED QUERY SIZE -------------------------------
+        # ==========================================================
+        else:
+
+            budget = self.config.query_size
+            budget = min(budget, len(candidate_pool))
+
+            # no gradient from budget in fixed mode
+            log_prob_budget = torch.tensor(0.0, device=self.device)
+            entropy_budget = torch.tensor(0.0, device=self.device)
+
+        # ==========================================================
+        # Image Sampling
+        # ==========================================================
         image_probs = F.softmax(
             image_logits.squeeze() / self.policy_temp,
             dim=0
@@ -241,7 +271,7 @@ class ActiveLearningSystemRL:
 
         selected_pos = torch.multinomial(
             image_probs,
-            num_samples=min(budget, len(candidate_pool)),
+            num_samples=budget,
             replacement=False,
         )
 
@@ -251,10 +281,6 @@ class ActiveLearningSystemRL:
 
         entropy_images = -(image_probs * torch.log(image_probs)).sum()
 
-        p = budget_ratio
-        entropy_budget = -(p * torch.log(p + 1e-12) +
-                        (1 - p) * torch.log(1 - p + 1e-12))
-
         entropy = entropy_images + entropy_budget
 
         selected_indices = [
@@ -262,7 +288,7 @@ class ActiveLearningSystemRL:
         ]
 
         return selected_indices, log_prob_sum, entropy, budget
-
+    
     # ==========================================================
     # One AL cycle
     # ==========================================================
@@ -308,7 +334,8 @@ class ActiveLearningSystemRL:
             reward = (score - self.prev_score) / (abs(self.prev_score) + 1e-8)
         self.prev_score = score 
         # Cost penalty
-        reward = reward - self.config.cost_lambda * budget
+        if getattr(self.config, "dynamic_query_size", False):
+            reward = reward - self.config.cost_lambda * budget
         # Policy update ONLY if a query actually happened
         if log_prob_sum is not None:
             advantage = reward - self.reward_baseline

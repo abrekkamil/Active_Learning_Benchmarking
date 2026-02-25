@@ -68,6 +68,8 @@ class ActiveLearningConfig:
 
     budget_options: List[int] = field(default_factory=lambda: [8, 16, 24])
     cost_lambda: float = 0.001
+
+    dynamic_query_size: bool = False
     # =====================
     # Logging / Repro
     # =====================
