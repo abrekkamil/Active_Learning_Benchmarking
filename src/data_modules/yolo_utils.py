@@ -1,11 +1,9 @@
 # src/datasets/yolo_utils.py
-
 from __future__ import annotations
 
 import os
 import json
 import shutil
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Union
 
@@ -19,82 +17,71 @@ except ImportError as e:
 
 
 # -----------------------------
-# Small helpers
+# Common helpers
 # -----------------------------
+
+IMG_EXTS = {".jpg", ".jpeg", ".png", ".JPG", ".JPEG", ".PNG"}
 
 def _ensure_dir(p: Union[str, Path]) -> Path:
     p = Path(p)
     p.mkdir(parents=True, exist_ok=True)
     return p
 
-def _safe_symlink(src: Path, dst: Path):
+def _safe_link_or_copy(src: Path, dst: Path, use_symlinks: bool = True):
     dst.parent.mkdir(parents=True, exist_ok=True)
     if dst.exists():
         return
-    try:
-        os.symlink(src, dst)
-    except OSError:
-        # fallback to copy if symlink not allowed
-        shutil.copy2(src, dst)
+    if use_symlinks:
+        try:
+            os.symlink(src, dst)
+            return
+        except OSError:
+            pass
+    shutil.copy2(src, dst)
 
-def _list_images(image_dir: Path) -> List[Path]:
-    exts = {".jpg", ".jpeg", ".png", ".JPG", ".JPEG", ".PNG"}
-    return [p for p in image_dir.iterdir() if p.suffix in exts]
+def _list_images(d: Path) -> List[Path]:
+    if not d.exists():
+        return []
+    return [p for p in d.iterdir() if p.suffix in IMG_EXTS]
 
-def _find_by_stem(directory: Path, stem: str) -> Optional[Path]:
-    exts = [".png", ".jpg", ".jpeg", ".PNG", ".JPG", ".JPEG"]
-    for e in exts:
-        p = directory / f"{stem}{e}"
+def _find_mask_for_stem(mask_dir: Path, stem: str) -> Optional[Path]:
+    for ext in [".png", ".jpg", ".jpeg", ".PNG", ".JPG", ".JPEG"]:
+        p = mask_dir / f"{stem}{ext}"
         if p.exists():
             return p
     return None
 
 def write_yolo_data_yaml(
-    out_root: Union[str, Path],
+    out_root: Path,
     names: Union[List[str], Dict[int, str]],
-    train_subdir: str = "images/train",
-    val_subdir: str = "images/val",
-    filename: str = "data.yaml",
+    train_rel: str = "images/train",
+    val_rel: str = "images/val",
 ) -> Path:
-    """
-    Writes Ultralytics data.yaml.
-    `names` can be a list ["crack", ...] or dict {0:"crack"}.
-    """
-    out_root = Path(out_root)
     if isinstance(names, list):
-        names_dict = {i: n for i, n in enumerate(names)}
-    else:
-        names_dict = dict(names)
-
-    data = {
-        "path": str(out_root),
-        "train": train_subdir,
-        "val": val_subdir,
-        "names": names_dict,
-    }
-    yaml_path = out_root / filename
+        names = {i: n for i, n in enumerate(names)}
+    data = {"path": str(out_root), "train": train_rel, "val": val_rel, "names": dict(names)}
+    yaml_path = out_root / "data.yaml"
     yaml_path.write_text(yaml.safe_dump(data, sort_keys=False))
     return yaml_path
 
 
 # -----------------------------
-# Mask-pairs -> YOLO-seg
+# Mask pairs -> YOLOv8-seg
 # -----------------------------
 
-def _mask_to_polygons_cv2(mask_np: np.ndarray, min_area: float = 50.0) -> List[np.ndarray]:
+def _mask_to_polygons(mask_np: np.ndarray, min_area: float = 100.0) -> List[np.ndarray]:
     """
-    mask_np: HxW bool
-    returns list of polygons (Nx2 array of xy pixel coords)
+    Uses OpenCV to extract external contours as polygons.
     """
     try:
         import cv2
     except ImportError as e:
-        raise ImportError("OpenCV is required for mask->polygon. Install: pip install opencv-python") from e
+        raise ImportError("Install OpenCV for mask->polygon: pip install opencv-python") from e
 
     mask_u8 = (mask_np.astype(np.uint8) * 255)
     contours, _ = cv2.findContours(mask_u8, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
-    polys = []
+    polys: List[np.ndarray] = []
     for cnt in contours:
         area = cv2.contourArea(cnt)
         if area < min_area:
@@ -105,69 +92,73 @@ def _mask_to_polygons_cv2(mask_np: np.ndarray, min_area: float = 50.0) -> List[n
         polys.append(cnt)
     return polys
 
-def prepare_yolo_from_mask_pairs(
+def _infer_maskpair_split_dirs(root: Path) -> Tuple[Tuple[Path, Path], Tuple[Path, Path]]:
+    """
+    Expected layouts:
+      root/train/images, root/train/masks
+      root/val/images,   root/val/masks
+    or (if no val):
+      root/test/images,  root/test/masks
+    """
+    tr_img = root / "train" / "images"
+    tr_msk = root / "train" / "masks"
+    if not tr_img.exists() or not tr_msk.exists():
+        raise FileNotFoundError(f"Could not find train/images and train/masks under {root}")
+
+    # prefer val if exists; otherwise map test->val
+    va_img = root / "val" / "images"
+    va_msk = root / "val" / "masks"
+    if va_img.exists() and va_msk.exists():
+        return (tr_img, tr_msk), (va_img, va_msk)
+
+    te_img = root / "test" / "images"
+    te_msk = root / "test" / "masks"
+    if te_img.exists() and te_msk.exists():
+        return (tr_img, tr_msk), (te_img, te_msk)
+
+    raise FileNotFoundError(f"Could not find val/* or test/* split under {root}")
+
+def prepare_yolo_from_mask_pairs_auto(
     root_dir: Union[str, Path],
-    out_root: Union[str, Path],
-    train_images_dir: Union[str, Path],
-    train_masks_dir: Union[str, Path],
-    val_images_dir: Union[str, Path],
-    val_masks_dir: Union[str, Path],
+    out_root: Optional[Union[str, Path]] = None,
     class_name: str = "crack",
     min_area: float = 100.0,
     use_symlinks: bool = True,
 ) -> Path:
-    """
-    Convert datasets stored as image/mask pairs into YOLOv8 segmentation format.
+    root = Path(root_dir)
+    (tr_img, tr_msk), (va_img, va_msk) = _infer_maskpair_split_dirs(root)
 
-    Output:
-      out_root/images/train, out_root/labels/train
-      out_root/images/val,   out_root/labels/val
-      out_root/data.yaml
-
-    This assumes binary masks (foreground crack vs background).
-    YOLO class index = 0.
-    """
-    root_dir = Path(root_dir)
+    out_root = Path(out_root) if out_root is not None else (root / "yolo_seg")
     out_root = Path(out_root)
 
-    for split, img_dir, msk_dir in [
-        ("train", Path(train_images_dir), Path(train_masks_dir)),
-        ("val",   Path(val_images_dir),   Path(val_masks_dir)),
-    ]:
+    for split, img_dir, msk_dir in [("train", tr_img, tr_msk), ("val", va_img, va_msk)]:
         out_img = _ensure_dir(out_root / "images" / split)
         out_lbl = _ensure_dir(out_root / "labels" / split)
 
-        img_files = _list_images(img_dir)
-        missing_masks = 0
-        empty_masks = 0
+        imgs = _list_images(img_dir)
+        missing = 0
+        empty = 0
 
-        for img_path in img_files:
+        for img_path in imgs:
             stem = img_path.stem
-            mask_path = _find_by_stem(msk_dir, stem)
+            mask_path = _find_mask_for_stem(msk_dir, stem)
             if mask_path is None:
-                missing_masks += 1
+                missing += 1
                 continue
 
-            # place image
-            dst_img = out_img / img_path.name
-            if use_symlinks:
-                _safe_symlink(img_path, dst_img)
-            else:
-                if not dst_img.exists():
-                    shutil.copy2(img_path, dst_img)
+            _safe_link_or_copy(img_path, out_img / img_path.name, use_symlinks=use_symlinks)
 
-            # read mask (no resize here; YOLO handles imgsz)
             mask = Image.open(mask_path).convert("L")
             mask_np = (np.array(mask) > 127)
 
             lbl_path = out_lbl / f"{stem}.txt"
             if mask_np.sum() == 0:
                 lbl_path.write_text("")
-                empty_masks += 1
+                empty += 1
                 continue
 
             H, W = mask_np.shape
-            polys = _mask_to_polygons_cv2(mask_np, min_area=min_area)
+            polys = _mask_to_polygons(mask_np, min_area=min_area)
 
             lines = []
             for poly in polys:
@@ -179,136 +170,216 @@ def prepare_yolo_from_mask_pairs(
 
             lbl_path.write_text("\n".join(lines) + ("\n" if lines else ""))
 
-        print(f"[mask_pairs:{split}] images={len(img_files)} missing_masks={missing_masks} empty_masks={empty_masks}")
+        print(f"[mask_pairs:{split}] images={len(imgs)} missing_masks={missing} empty_masks={empty}")
 
     yaml_path = write_yolo_data_yaml(out_root, names=[class_name])
-    print(f"[mask_pairs] Wrote {yaml_path}")
+    print(f"[mask_pairs] wrote {yaml_path}")
     return yaml_path
 
 
 # -----------------------------
-# COCO -> YOLO (detect or seg)
+# COCO -> YOLO (auto)
 # -----------------------------
 
-def _load_coco(coco_json: Union[str, Path]) -> dict:
-    coco_json = Path(coco_json)
-    return json.loads(coco_json.read_text())
+def _find_coco_annotation_files(root: Path) -> Tuple[Path, Path]:
+    """
+    Looks for typical COCO annotation naming inside root/annotations or root.
+    Accepts instances_*.json or *_train.json / *_val.json.
+    """
+    candidates = []
+    for base in [root / "annotations", root]:
+        if base.exists():
+            candidates += list(base.glob("*.json"))
+
+    def pick(preferred: List[str]) -> Optional[Path]:
+        for name in preferred:
+            for p in candidates:
+                if p.name == name:
+                    return p
+        return None
+
+    train_json = pick(["instances_train.json", "train.json", "instances_train2017.json"])
+    val_json   = pick(["instances_val.json", "val.json", "instances_val2017.json"])
+
+    if train_json and val_json:
+        return train_json, val_json
+
+    # fallback: fuzzy match
+    train_like = [p for p in candidates if "train" in p.name.lower()]
+    val_like   = [p for p in candidates if ("val" in p.name.lower()) or ("valid" in p.name.lower())]
+    if train_like and val_like:
+        # pick shortest names (usually the main files)
+        train_json = sorted(train_like, key=lambda p: len(p.name))[0]
+        val_json   = sorted(val_like, key=lambda p: len(p.name))[0]
+        return train_json, val_json
+
+    raise FileNotFoundError(f"Could not infer COCO train/val json under {root} (searched annotations/ and root/)")
+
+def _infer_coco_images_root(root: Path, coco_json: Path) -> Path:
+    """
+    Find images root by checking a few common folders against one COCO image file_name.
+    """
+    coco = json.loads(coco_json.read_text())
+    if not coco.get("images"):
+        raise ValueError(f"No 'images' field in {coco_json}")
+    sample_fn = coco["images"][0]["file_name"]
+    sample_name = Path(sample_fn).name
+
+    candidates = [
+        root / "images",
+        root / "train" / "images",
+        root / "val" / "images",
+        root,  # sometimes file_name contains subfolders already
+    ]
+    for c in candidates:
+        if (c / sample_fn).exists() or (c / sample_name).exists():
+            return c
+
+    # last resort: search for the filename somewhere under root (can be slow but ok for 1 file)
+    found = list(root.rglob(sample_name))
+    if found:
+        return found[0].parent
+
+    raise FileNotFoundError(f"Could not locate images root for COCO file_name '{sample_fn}' under {root}")
 
 def _category_mapping(coco: dict) -> Tuple[Dict[int, int], Dict[int, str]]:
-    """
-    COCO category ids can be non-contiguous; YOLO wants 0..nc-1.
-    Returns:
-      cat_id_to_yolo_idx, yolo_idx_to_name
-    """
     cats = coco.get("categories", [])
     cat_ids = sorted([c["id"] for c in cats])
     cat_id_to_idx = {cid: i for i, cid in enumerate(cat_ids)}
     idx_to_name = {cat_id_to_idx[c["id"]]: c.get("name", f"class_{cat_id_to_idx[c['id']]}") for c in cats}
     return cat_id_to_idx, idx_to_name
 
-def _bbox_xywh_to_yolo(xywh, img_w, img_h) -> Tuple[float, float, float, float]:
+def _bbox_xywh_to_yolo(xywh, img_w, img_h):
     x, y, w, h = xywh
     cx = (x + w / 2.0) / img_w
     cy = (y + h / 2.0) / img_h
-    ww = w / img_w
-    hh = h / img_h
-    return cx, cy, ww, hh
+    return cx, cy, (w / img_w), (h / img_h)
 
-def prepare_yolo_from_coco(
-    coco_train_json: Union[str, Path],
-    coco_val_json: Union[str, Path],
-    images_root: Union[str, Path],
-    out_root: Union[str, Path],
+def prepare_yolo_from_coco_auto(
+    root_dir: Union[str, Path],
+    out_root: Optional[Union[str, Path]] = None,
     task: str = "detect",  # "detect" or "segment"
     use_symlinks: bool = True,
-    min_area: float = 50.0,
 ) -> Path:
-    """
-    Convert COCO dataset to YOLO format.
-    - detect: labels are bbox lines: cls cx cy w h
-    - segment: labels are polygon lines: cls x1 y1 x2 y2 ...
-
-    images_root: base folder for file_name entries in COCO.
-    """
     assert task in ("detect", "segment")
-    images_root = Path(images_root)
-    out_root = Path(out_root)
+    root = Path(root_dir)
+    out_root = Path(out_root) if out_root is not None else (root / f"yolo_{task}")
 
-    def convert_split(coco_json, split_name: str, cat_id_to_idx: Dict[int, int]):
-        coco = _load_coco(coco_json)
+    train_json, val_json = _find_coco_annotation_files(root)
+    images_root = _infer_coco_images_root(root, train_json)
+
+    coco_train = json.loads(Path(train_json).read_text())
+    cat_id_to_idx, idx_to_name = _category_mapping(coco_train)
+
+    def convert_split(coco_json: Path, split: str):
+        coco = json.loads(Path(coco_json).read_text())
         imgs = {im["id"]: im for im in coco["images"]}
+
         anns_by_img: Dict[int, List[dict]] = {}
         for ann in coco["annotations"]:
             if ann.get("iscrowd", 0) == 1:
                 continue
             anns_by_img.setdefault(ann["image_id"], []).append(ann)
 
-        out_img = _ensure_dir(out_root / "images" / split_name)
-        out_lbl = _ensure_dir(out_root / "labels" / split_name)
+        out_img = _ensure_dir(out_root / "images" / split)
+        out_lbl = _ensure_dir(out_root / "labels" / split)
 
         missing_imgs = 0
-
         for img_id, im in imgs.items():
             fn = im["file_name"]
             w, h = im["width"], im["height"]
-
             src_img = images_root / fn
+            if not src_img.exists():
+                # try basename fallback
+                src_img = images_root / Path(fn).name
             if not src_img.exists():
                 missing_imgs += 1
                 continue
 
-            dst_img = out_img / Path(fn).name
-            if use_symlinks:
-                _safe_symlink(src_img, dst_img)
-            else:
-                if not dst_img.exists():
-                    shutil.copy2(src_img, dst_img)
+            _safe_link_or_copy(src_img, out_img / src_img.name, use_symlinks=use_symlinks)
 
-            stem = Path(fn).stem
+            stem = Path(src_img.name).stem
             label_path = out_lbl / f"{stem}.txt"
             lines = []
 
             for ann in anns_by_img.get(img_id, []):
                 cls = cat_id_to_idx[ann["category_id"]]
-
                 if task == "detect":
                     cx, cy, ww, hh = _bbox_xywh_to_yolo(ann["bbox"], w, h)
                     lines.append(f"{cls} {cx:.6f} {cy:.6f} {ww:.6f} {hh:.6f}")
                 else:
-                    seg = ann.get("segmentation", None)
+                    seg = ann.get("segmentation")
                     if seg is None:
                         continue
-
-                    # COCO polygon format: list of lists
+                    # polygon format
                     if isinstance(seg, list) and len(seg) > 0 and isinstance(seg[0], list):
-                        # pick largest polygon by number of points
                         poly = max(seg, key=lambda p: len(p))
                         if len(poly) < 6:
                             continue
                         coords = []
                         for i in range(0, len(poly), 2):
-                            x = poly[i] / w
-                            y = poly[i + 1] / h
-                            coords.append(f"{x:.6f}")
-                            coords.append(f"{y:.6f}")
+                            coords.append(f"{(poly[i] / w):.6f}")
+                            coords.append(f"{(poly[i+1] / h):.6f}")
                         lines.append(f"{cls} " + " ".join(coords))
                     else:
-                        # Likely RLE dict -> needs pycocotools to decode + contour extraction
                         raise ValueError(
-                            "COCO segmentation appears to be RLE (not polygon). "
-                            "Install pycocotools and convert RLE->polygons (I can provide that)."
+                            "COCO segmentation appears to be RLE. "
+                            "If you need this, I’ll add an RLE->polygon path using pycocotools."
                         )
 
             label_path.write_text("\n".join(lines) + ("\n" if lines else ""))
 
-        print(f"[coco:{split_name}] imgs={len(imgs)} missing_imgs={missing_imgs}")
+        print(f"[coco:{split}] imgs={len(imgs)} missing_imgs={missing_imgs}")
 
-    coco_train = _load_coco(coco_train_json)
-    cat_id_to_idx, idx_to_name = _category_mapping(coco_train)
-
-    convert_split(coco_train_json, "train", cat_id_to_idx)
-    convert_split(coco_val_json, "val", cat_id_to_idx)
+    convert_split(train_json, "train")
+    convert_split(val_json, "val")
 
     yaml_path = write_yolo_data_yaml(out_root, names=idx_to_name)
-    print(f"[coco] Wrote {yaml_path}")
+    print(f"[coco] train_json={train_json.name} val_json={val_json.name}")
+    print(f"[coco] images_root={images_root}")
+    print(f"[coco] wrote {yaml_path}")
     return yaml_path
+
+
+# -----------------------------
+# Public entrypoint: use config only
+# -----------------------------
+
+def prepare_yolo_dataset(config, out_root: Optional[Union[str, Path]] = None, task: Optional[str] = None) -> Path:
+    """
+    Single entrypoint:
+      - mask-pairs datasets -> YOLO segmentation
+      - coco_detection -> YOLO detection
+      - coco_segmentation -> YOLO segmentation (polygon-only)
+    """
+    root = Path(config.data_dir)
+    dtype = getattr(config, "dataset_type", None)
+
+    if dtype in ("crackseg9k", "deepcrack"):
+        return prepare_yolo_from_mask_pairs_auto(
+            root_dir=root,
+            out_root=out_root,
+            class_name=getattr(config, "yolo_class_name", "crack"),
+            min_area=float(getattr(config, "yolo_min_area", 100.0)),
+            use_symlinks=bool(getattr(config, "yolo_use_symlinks", True)),
+        )
+
+    if dtype == "coco_detection":
+        t = task or "detect"
+        return prepare_yolo_from_coco_auto(
+            root_dir=root,
+            out_root=out_root,
+            task=t,
+            use_symlinks=bool(getattr(config, "yolo_use_symlinks", True)),
+        )
+
+    if dtype == "coco_segmentation":
+        t = task or "segment"
+        return prepare_yolo_from_coco_auto(
+            root_dir=root,
+            out_root=out_root,
+            task=t,
+            use_symlinks=bool(getattr(config, "yolo_use_symlinks", True)),
+        )
+
+    raise ValueError(f"prepare_yolo_dataset: unsupported dataset_type={dtype}")
