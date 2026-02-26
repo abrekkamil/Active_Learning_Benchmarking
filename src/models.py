@@ -58,6 +58,205 @@ def _batched(imgs: List[torch.Tensor]) -> torch.Tensor:
     imgs = [_ensure_chw(i) for i in imgs]
     return torch.stack(imgs, dim=0)
 
+# ============================================================
+# YOLOv8 MODEL (DETECTION / INSTANCE SEGMENTATION)
+# ============================================================
+class YOLOv8Model:
+    """
+    Wrapper for Ultralytics YOLOv8 (detection or instance segmentation).
+
+    Notes:
+    - Ultralytics training expects a YOLO-format dataset on disk + a data.yaml.
+      This wrapper therefore assumes your config provides `yolo_data_yaml`.
+    - predict(images) accepts List[Tensor CHW] and returns Ultralytics Results objects.
+    """
+
+    def __init__(
+        self,
+        num_classes: int,
+        device: torch.device,
+        config,
+        weights: Optional[str] = None,   # e.g. "yolov8n.pt" or "yolov8n-seg.pt"
+        task: str = "detect",            # "detect" or "segment"
+    ):
+        from ultralytics import YOLO
+
+        self.device = device
+        self.config = config
+        self.num_classes = num_classes
+        self.task = task
+
+        self.weights = weights or ("yolov8n-seg.pt" if task == "segment" else "yolov8n.pt")
+        self.model = YOLO(self.weights)
+
+        # Move model to device (Ultralytics handles internally too, but we keep a flag)
+        self._device_str = "cuda" if (device.type == "cuda") else "cpu"
+
+    # ---- passthrough ----
+    def train(self):
+        # Ultralytics doesn't use a persistent "train mode" in the same way;
+        # training happens via model.train(...)
+        return
+
+    def eval(self):
+        # Inference is via model.predict(...)
+        return
+
+    # ---- core API ----
+    def train_epoch(self, dataset, epoch: int, total_epochs: int = 1) -> Dict[str, float]:
+        """
+        Ultralytics trains over epochs in one call; to emulate 'train_epoch',
+        we run 1 epoch at a time using 'epochs=1' and 'resume' from the previous run.
+
+        Required config fields:
+          - yolo_data_yaml: path to data.yaml
+          - yolo_project: output root (optional)
+          - yolo_name: run name (optional)
+          - imgsz, batch, lr0, weight_decay ... (optional)
+        """
+        data_yaml = getattr(self.config, "yolo_data_yaml", None)
+        if data_yaml is None:
+            raise ValueError("config must include `yolo_data_yaml` (path to YOLO data.yaml).")
+
+        project = getattr(self.config, "yolo_project", "runs_yolo")
+        name = getattr(self.config, "yolo_name", "exp")
+
+        imgsz = getattr(self.config, "imgsz", 640)
+        batch = getattr(self.config, "batch_size", 8)
+        lr0 = getattr(self.config, "lr", 1e-3)
+        weight_decay = getattr(self.config, "weight_decay", 0.0)
+
+        # Run exactly ONE epoch, resuming within same project/name folder
+        # Ultralytics resume=True resumes from last.pt if present.
+        results = self.model.train(
+            data=data_yaml,
+            epochs=1,
+            imgsz=imgsz,
+            batch=batch,
+            lr0=lr0,
+            weight_decay=weight_decay,
+            device=self._device_str,
+            project=project,
+            name=name,
+            exist_ok=True,
+            resume=True if epoch > 1 else False,
+            verbose=False,
+        )
+
+        # results is a trainer object / results dict depending on ultralytics version
+        # We'll return a minimal consistent dict
+        out = {"training_time": float(getattr(results, "elapsed", 0.0))}
+        # try to surface loss if available
+        try:
+            if hasattr(results, "results_dict") and "train/box_loss" in results.results_dict:
+                out["train_box_loss"] = float(results.results_dict["train/box_loss"])
+        except Exception:
+            pass
+
+        return out
+
+    def evaluate(self, dataset=None) -> Dict[str, float]:
+        """
+        Runs Ultralytics validation (requires same data.yaml).
+        Returns mAP metrics if available.
+        """
+        data_yaml = getattr(self.config, "yolo_data_yaml", None)
+        if data_yaml is None:
+            raise ValueError("config must include `yolo_data_yaml` (path to YOLO data.yaml).")
+
+        imgsz = getattr(self.config, "imgsz", 640)
+        batch = getattr(self.config, "batch_size", 8)
+
+        metrics = self.model.val(
+            data=data_yaml,
+            imgsz=imgsz,
+            batch=batch,
+            device=self._device_str,
+            verbose=False,
+        )
+
+        out: Dict[str, float] = {}
+
+        # Ultralytics exposes different attributes across versions; try common ones
+        # Detection:
+        for k in ["map50", "map", "map75"]:
+            v = getattr(metrics, k, None)
+            if v is not None:
+                out[f"bbox_{k}"] = float(v)
+
+        # Segmentation (if available):
+        # Some versions provide metrics.seg.map, etc.
+        try:
+            seg = getattr(metrics, "seg", None)
+            if seg is not None:
+                for k in ["map50", "map", "map75"]:
+                    v = getattr(seg, k, None)
+                    if v is not None:
+                        out[f"seg_{k}"] = float(v)
+        except Exception:
+            pass
+
+        return out if out else {"metric": 0.0}
+
+    def predict(self, images: List[torch.Tensor]):
+        """
+        Returns a list of Ultralytics Results.
+        We pass tensors directly (BCHW). Ultralytics supports numpy/torch inputs.
+        """
+        self.model.predictor = None  # avoid stale predictor settings across calls
+
+        batch = torch.stack([_ensure_rgb(im) for im in images], dim=0)
+
+        # Ultralytics expects float in 0..255 or 0..1; we keep your tensor as-is.
+        # If your tensors are normalized, you may want to de-normalize before passing.
+        results = self.model.predict(
+            source=batch,
+            device=self._device_str,
+            verbose=False,
+        )
+        return results
+
+    def get_uncertainty(self, images: List[torch.Tensor]) -> np.ndarray:
+        """
+        Simple uncertainty from confidences:
+          - no detections/masks => 1.0
+          - else => 1 - mean(top-k conf)
+        """
+        results = self.predict(images)
+        scores: List[float] = []
+
+        for r in results:
+            conf = None
+            # r.boxes.conf for detection; for seg it's still boxes + masks
+            try:
+                if hasattr(r, "boxes") and r.boxes is not None and hasattr(r.boxes, "conf"):
+                    conf = r.boxes.conf
+            except Exception:
+                conf = None
+
+            if conf is None or len(conf) == 0:
+                scores.append(1.0)
+                continue
+
+            conf = conf.detach().float().cpu()
+            k = min(len(conf), 5)
+            topk_mean = torch.topk(conf, k).values.mean().item()
+            scores.append(float(np.clip(1.0 - topk_mean, 0.0, 1.0)))
+
+        return np.array(scores, dtype=np.float32)
+
+    def save(self, path: str):
+        """
+        Ultralytics manages checkpoints in runs/ directory.
+        This method exports weights to a given path (best-effort).
+        """
+        # export current model weights
+        self.model.save(path)
+
+    def load(self, path: str):
+        from ultralytics import YOLO
+        self.model = YOLO(path)
+
 
 # ============================================================
 # UNET MODEL (SEGMENTATION)
