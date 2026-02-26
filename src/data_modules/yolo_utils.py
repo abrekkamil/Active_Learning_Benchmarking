@@ -183,64 +183,120 @@ def prepare_yolo_from_mask_pairs_auto(
 
 def _find_coco_annotation_files(root: Path) -> Tuple[Path, Path]:
     """
-    Looks for typical COCO annotation naming inside root/annotations or root.
-    Accepts instances_*.json or *_train.json / *_val.json.
+    More robust COCO split discovery.
+    Supports:
+      - annotations/instances_train.json + annotations/instances_val.json
+      - train/_annotations.coco.json + valid/_annotations.coco.json
+      - train/_annotations.coco.json + test/_annotations.coco.json
+      - *_train*.json and *_val*/valid*/test*.json anywhere under root
     """
-    candidates = []
+    # search recursively but keep it bounded to json files only
+    all_json = list(root.rglob("*.json"))
+
+    if not all_json:
+        raise FileNotFoundError(f"No .json files found under {root}")
+
+    def score_train(p: Path) -> int:
+        n = p.name.lower()
+        s = 0
+        if "train" in str(p.parent).lower(): s += 3
+        if "train" in n: s += 3
+        if "_annotations.coco.json" == n: s += 5
+        if "instances_train" in n: s += 5
+        if "annotations" in str(p.parent).lower(): s += 1
+        return s
+
+    def score_val(p: Path) -> int:
+        n = p.name.lower()
+        s = 0
+        parent = str(p.parent).lower()
+        if "val" in parent or "valid" in parent: s += 3
+        if "test" in parent: s += 2  # fallback: treat test as val
+        if "val" in n or "valid" in n: s += 3
+        if "test" in n: s += 2
+        if "_annotations.coco.json" == n: s += 5
+        if "instances_val" in n or "instances_valid" in n: s += 5
+        if "annotations" in parent: s += 1
+        return s
+
+    # common explicit pairs
+    # 1) train/_annotations.coco.json + (valid|val|test)/_annotations.coco.json
+    train_candidates = [p for p in all_json if p.name.lower() == "_annotations.coco.json" and p.parent.name.lower() == "train"]
+    if train_candidates:
+        train_json = train_candidates[0]
+        for split in ["val", "valid", "test"]:
+            cand = root / split / "_annotations.coco.json"
+            if cand.exists():
+                return train_json, cand
+
+    # 2) classic COCO names anywhere
     for base in [root / "annotations", root]:
-        if base.exists():
-            candidates += list(base.glob("*.json"))
+        tr = base / "instances_train.json"
+        va = base / "instances_val.json"
+        if tr.exists() and va.exists():
+            return tr, va
 
-    def pick(preferred: List[str]) -> Optional[Path]:
-        for name in preferred:
-            for p in candidates:
-                if p.name == name:
-                    return p
-        return None
+    # scored fallback
+    train_json = max(all_json, key=score_train)
+    val_json = max(all_json, key=score_val)
 
-    train_json = pick(["instances_train.json", "train.json", "instances_train2017.json"])
-    val_json   = pick(["instances_val.json", "val.json", "instances_val2017.json"])
+    if score_train(train_json) == 0 or score_val(val_json) == 0:
+        raise FileNotFoundError(
+            f"Could not infer COCO train/val json under {root}. "
+            f"Found json files: {[str(p.relative_to(root)) for p in all_json[:20]]}"
+        )
 
-    if train_json and val_json:
-        return train_json, val_json
+    # If the "best val" equals train, try pick second best for val
+    if val_json == train_json:
+        sorted_val = sorted(all_json, key=score_val, reverse=True)
+        for p in sorted_val:
+            if p != train_json and score_val(p) > 0:
+                val_json = p
+                break
 
-    # fallback: fuzzy match
-    train_like = [p for p in candidates if "train" in p.name.lower()]
-    val_like   = [p for p in candidates if ("val" in p.name.lower()) or ("valid" in p.name.lower())]
-    if train_like and val_like:
-        # pick shortest names (usually the main files)
-        train_json = sorted(train_like, key=lambda p: len(p.name))[0]
-        val_json   = sorted(val_like, key=lambda p: len(p.name))[0]
-        return train_json, val_json
+    return train_json, val_json
 
-    raise FileNotFoundError(f"Could not infer COCO train/val json under {root} (searched annotations/ and root/)")
 
 def _infer_coco_images_root(root: Path, coco_json: Path) -> Path:
     """
-    Find images root by checking a few common folders against one COCO image file_name.
+    Finds folder that makes (images_root / file_name) exist for at least one sample.
+    Handles Roboflow layouts:
+      root/train/*.jpg
+      root/train/images/*.jpg
+      root/test/*.jpg
+      root/test/images/*.jpg
     """
     coco = json.loads(coco_json.read_text())
     if not coco.get("images"):
         raise ValueError(f"No 'images' field in {coco_json}")
+
     sample_fn = coco["images"][0]["file_name"]
-    sample_name = Path(sample_fn).name
+    sample_basename = Path(sample_fn).name
 
     candidates = [
         root / "images",
         root / "train" / "images",
         root / "val" / "images",
-        root,  # sometimes file_name contains subfolders already
+        root / "valid" / "images",
+        root / "test" / "images",
+        root / "train",
+        root / "val",
+        root / "valid",
+        root / "test",
+        root,
     ]
+
     for c in candidates:
-        if (c / sample_fn).exists() or (c / sample_name).exists():
+        if (c / sample_fn).exists() or (c / sample_basename).exists():
             return c
 
-    # last resort: search for the filename somewhere under root (can be slow but ok for 1 file)
-    found = list(root.rglob(sample_name))
+    # fallback: search for that basename somewhere under root (one file only)
+    found = list(root.rglob(sample_basename))
     if found:
         return found[0].parent
 
     raise FileNotFoundError(f"Could not locate images root for COCO file_name '{sample_fn}' under {root}")
+
 
 def _category_mapping(coco: dict) -> Tuple[Dict[int, int], Dict[int, str]]:
     cats = coco.get("categories", [])
