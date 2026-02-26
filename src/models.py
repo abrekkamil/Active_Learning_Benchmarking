@@ -771,18 +771,15 @@ class PolicyNet(nn.Module):
         )
 
         self.image_head = nn.Linear(hidden_dim, 1)
-        self.budget_head = nn.Linear(hidden_dim, num_budget_options)
+        self.budget_head = nn.Linear(hidden_dim, 1)
 
     def forward(self, x, global_state=None):
-
         h = self.encoder(x)
+        image_logits = self.image_head(h).squeeze(-1)  # [N]
 
-        image_logits = self.image_head(h).squeeze(-1)
-
+        budget_logit = None
         if global_state is not None:
-            g = self.encoder(global_state.unsqueeze(0))
-            budget_logits = self.budget_head(g)
-        else:
-            budget_logits = None
+            g = self.encoder(global_state.unsqueeze(0))          # [1, H]
+            budget_logit = self.budget_head(g).squeeze()         # scalar
 
-        return image_logits, budget_logits
+        return image_logits, budget_logit

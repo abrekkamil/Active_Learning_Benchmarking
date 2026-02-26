@@ -236,7 +236,7 @@ class ActiveLearningSystemRL:
         # ==========================================================
         if getattr(self.config, "dynamic_query_size", False):
 
-            budget_ratio = torch.sigmoid(budget_logits.squeeze())
+            budget_ratio = torch.sigmoid(budget_logits)
             budget_ratio = torch.clamp(budget_ratio, 0.05, 0.5)
 
             budget = int(budget_ratio.item() * len(candidate_pool))
