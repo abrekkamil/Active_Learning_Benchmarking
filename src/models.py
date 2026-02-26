@@ -93,10 +93,47 @@ class YOLOv8Model:
         self._device_str = "cuda" if (device.type == "cuda") else "cpu"
 
     # ---- passthrough ----
-    def train(self):
-        # Ultralytics doesn't use a persistent "train mode" in the same way;
-        # training happens via model.train(...)
-        return
+    def fit(
+            self,
+            data_yaml: str,
+            imgsz: int = 640,
+            epochs: int = 1,
+            batch: int = 8,
+            workers: int = 2,
+            device: Optional[Union[int, str]] = None,
+            project: Optional[str] = None,
+            name: Optional[str] = None,
+            resume: bool = False,
+            **kwargs,
+        ) -> Dict[str, float]:
+            """
+            Train YOLOv8 using Ultralytics trainer.
+            Returns a small dict for logging.
+            """
+            dev = device
+            if dev is None:
+                dev = 0 if self._device_str == "cuda" else "cpu"
+
+            results = self.model.train(
+                data=data_yaml,
+                imgsz=imgsz,
+                epochs=epochs,
+                batch=batch,
+                workers=workers,
+                device=dev,
+                project=project,
+                name=name,
+                resume=resume,
+                **kwargs,
+            )
+
+            # best-effort metrics extraction (varies by ultralytics version)
+            out = {}
+            try:
+                out["fitness"] = float(getattr(results, "fitness", 0.0))
+            except Exception:
+                pass
+            return out
 
     def eval(self):
         # Inference is via model.predict(...)
@@ -105,55 +142,25 @@ class YOLOv8Model:
     # ---- core API ----
     def train_epoch(self, dataset, epoch: int, total_epochs: int = 1) -> Dict[str, float]:
         """
-        Ultralytics trains over epochs in one call; to emulate 'train_epoch',
-        we run 1 epoch at a time using 'epochs=1' and 'resume' from the previous run.
-
-        Required config fields:
-          - yolo_data_yaml: path to data.yaml
-          - yolo_project: output root (optional)
-          - yolo_name: run name (optional)
-          - imgsz, batch, lr0, weight_decay ... (optional)
+        'dataset' is unused for YOLO; training uses config.yolo_data_yaml.
+        This keeps compatibility with your AL pipeline signature.
         """
         data_yaml = getattr(self.config, "yolo_data_yaml", None)
         if data_yaml is None:
-            raise ValueError("config must include `yolo_data_yaml` (path to YOLO data.yaml).")
+            raise ValueError("config must include `yolo_data_yaml` (created by prepare_yolo_dataset).")
 
-        project = getattr(self.config, "yolo_project", "runs_yolo")
-        name = getattr(self.config, "yolo_name", "exp")
-
-        imgsz = getattr(self.config, "imgsz", 640)
-        batch = getattr(self.config, "batch_size", 8)
-        lr0 = getattr(self.config, "lr", 1e-3)
-        weight_decay = getattr(self.config, "weight_decay", 0.0)
-
-        # Run exactly ONE epoch, resuming within same project/name folder
-        # Ultralytics resume=True resumes from last.pt if present.
-        results = self.model.train(
-            data=data_yaml,
+        return self.fit(
+            data_yaml=str(data_yaml),
+            imgsz=getattr(self.config, "img_size", 640),
             epochs=1,
-            imgsz=imgsz,
-            batch=batch,
-            lr0=lr0,
-            weight_decay=weight_decay,
-            device=self._device_str,
-            project=project,
-            name=name,
-            exist_ok=True,
+            batch=getattr(self.config, "batch_size", 8),
+            workers=getattr(self.config, "num_workers", 2),
+            device=0 if self._device_str == "cuda" else "cpu",
+            project=getattr(self.config, "yolo_project", None),
+            name=getattr(self.config, "yolo_name", None),
             resume=True if epoch > 1 else False,
             verbose=False,
         )
-
-        # results is a trainer object / results dict depending on ultralytics version
-        # We'll return a minimal consistent dict
-        out = {"training_time": float(getattr(results, "elapsed", 0.0))}
-        # try to surface loss if available
-        try:
-            if hasattr(results, "results_dict") and "train/box_loss" in results.results_dict:
-                out["train_box_loss"] = float(results.results_dict["train/box_loss"])
-        except Exception:
-            pass
-
-        return out
 
     def evaluate(self, dataset=None) -> Dict[str, float]:
         """
