@@ -544,6 +544,7 @@ class MaskRCNNModel:
             print_freq=getattr(self.config, "print_freq", 20),
             distributed=False,
             output_dir=getattr(self.config, "output_dir", "."),
+            warmup_iters=max(1000, len(dataset))
         )
 
         start = time.time()
