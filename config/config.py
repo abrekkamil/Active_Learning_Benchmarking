@@ -33,6 +33,7 @@ class ActiveLearningConfig:
     # =====================
     # Task / Model
     # =====================
+    model: str = "unet"  # resnet | unet
     task: str = "segmentation"  # detection | segmentation
     use_cuda: bool = True
 
