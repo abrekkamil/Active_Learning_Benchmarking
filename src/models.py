@@ -505,7 +505,7 @@ class MaskRCNNModel:
         self.num_classes = num_classes
 
         self.model = pmr.maskrcnn_resnet50(
-            pretrained=True,
+            pretrained=False,
             num_classes=num_classes
         ).to(device)
 
