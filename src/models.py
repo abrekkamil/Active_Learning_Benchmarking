@@ -768,7 +768,7 @@ class DeepLabV3Model:
         )
 
         ious, dices, pixel_accs = [], [], []
-        all_preds, all_targets = []
+        all_preds, all_targets = [], []
 
         with torch.no_grad():
             pbar = tqdm(loader, desc="Validation", leave=False)
@@ -860,7 +860,7 @@ class DeepLabV3Model:
         self.model.load_state_dict(ckpt["state_dict"])
         if "optimizer" in ckpt:
             self.optimizer.load_state_dict(ckpt["optimizer"])
-            
+
 # ============================================================
 # WEAK MODEL (COLD START)
 # ============================================================
