@@ -524,7 +524,7 @@ class MaskRCNNModel:
         self.model.eval()
 
     # ---- core API ----
-    def train_epoch(self, dataset, epoch: int) -> Dict[str, float]:
+    def train_epoch(self, dataset, epoch: int, total_epochs: int) -> Dict[str, float]:
         import src.pytorch_mask_rcnn as pmr
 
         self.model.train()
@@ -547,6 +547,7 @@ class MaskRCNNModel:
         )
 
         start = time.time()
+        print(f"Epoch {epoch}/{total_epochs}")
         pmr.train_one_epoch(
             self.model,
             self.optimizer,
