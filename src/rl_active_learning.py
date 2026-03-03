@@ -43,17 +43,21 @@ class ActiveLearningSystemRL:
         # --------------------
         # Models
         # --------------------
-        self.oracle_model = UNetModel(
-            num_classes=config.num_classes,
-            device=self.device,
-            config=config,
-        )
+        if config.model_name == "maskrcnn":
+            from .models import MaskRCNNModel
+            self.oracle_model = MaskRCNNModel(config.num_classes, self.device, config)
+            self.main_model = MaskRCNNModel(config.num_classes, self.device, config)
+        elif config.model_name == "unet":
+            from .models import UNetModel
+            self.oracle_model = UNetModel(config.num_classes, self.device,config)
+            self.main_model = UNetModel(config.num_classes, self.device,config)
+        elif config.model_name == "Deeplabv3":
+            from .models import DeepLabV3Model
+            self.oracle_model = DeepLabV3Model(config.num_classes, self.device, config)
+            self.main_model = DeepLabV3Model(config.num_classes, self.device, config)
+        else:
+            raise ValueError("Unknown task")
 
-        self.main_model = UNetModel(
-            num_classes=config.num_classes,
-            device=self.device,
-            config=config,
-        )
 
         # --------------------
         # RL policy
