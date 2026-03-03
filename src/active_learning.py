@@ -10,7 +10,6 @@ from typing import List, Tuple, Dict, Any, Optional
 import datetime
 from .cold_start_strategies import ColdStartStrategies
 from .query_strategies import QueryStrategies
-from .models import MaskRCNNModel, UNetModel
 from .utils import setup_logging, save_checkpoint, load_checkpoint
 from .data_modules.factory import load_dataset
 
@@ -45,10 +44,15 @@ class ActiveLearningSystem:
         self.query_strategy = QueryStrategies(config)
         
         # Initialize model
-        if config.task == "detection":
+        if config.model_name == "maskrcnn":
+            from .models import MaskRCNNModel
             self.model = MaskRCNNModel(config.num_classes, self.device, config)
-        elif config.task == "segmentation":
+        elif config.model_name == "unet":
+            from .models import UNetModel
             self.model = UNetModel(config.num_classes, self.device,config)
+        elif config.model_name == "Deeplabv3":
+            from .models import DeepLabV3Model
+            self.model = DeepLabV3Model(config.num_classes, self.device, config)
         else:
             raise ValueError("Unknown task")
         
