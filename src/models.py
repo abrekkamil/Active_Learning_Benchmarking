@@ -552,7 +552,7 @@ class MaskRCNNModel:
         pmr.train_one_epoch(
             self.model,
             self.optimizer,
-            loader,
+            dataset,
             self.device,
             epoch,
             args
