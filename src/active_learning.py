@@ -26,6 +26,8 @@ class ActiveLearningSystem:
     
     def __init__(self, config, skip_cold_start=False):
         """Initialize active learning system."""
+        selfsystem_start_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
         self.config = config
         self.device = torch.device(
             "cuda" if torch.cuda.is_available() and config.use_cuda else "cpu"
@@ -239,7 +241,7 @@ class ActiveLearningSystem:
     def run(self):
         """Run complete active learning process."""
         self.logger.info("Starting active learning process...")
-        
+        run_start_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         all_metrics = []
         
         # Initial training
@@ -258,6 +260,13 @@ class ActiveLearningSystem:
             all_metrics.append(cycle_metrics)
         
         self.logger.info("Active learning completed!")
+        run_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S") - run_start_time
+        self.logger.info(f"RL Active Learning completed in {run_time}")
+        self.history["run_time"] = run_time
+        system_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S") - self.system_start_time
+        self.logger.info(f"Total system time: {system_time}")
+        self.history["system_time"] = system_time
+        self.save_results()
         return all_metrics
     
     def _log_metrics(self, epoch, train_time, train_metrics, eval_metrics):

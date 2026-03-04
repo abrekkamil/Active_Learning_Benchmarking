@@ -23,6 +23,7 @@ class ActiveLearningSystemRL:
     """
 
     def __init__(self, config,  skip_cold_start: bool = False):
+        self.system_start_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         self.config = config
         set_seed(config.seed)
         self.cycle = 0
@@ -333,13 +334,16 @@ class ActiveLearningSystemRL:
         # Train
         labeled_dataset = Subset(self.dataset_train, self.labeled_indices)
         for ep in range(self.config.epochs_per_cycle):
+            epoch_start = time.time()
             train_metrics = self.main_model.train_epoch(labeled_dataset, ep, self.config.epochs_per_cycle)
             eval_metrics = self.main_model.evaluate(self.dataset_val)
+            epoch_time = time.time() - epoch_start
 
             self._log_metrics(
                 epoch=ep,
                 train_metrics=train_metrics,
                 eval_metrics=eval_metrics,
+                epoch_time=epoch_time,
             )
 
             self.save_results()
@@ -385,19 +389,22 @@ class ActiveLearningSystemRL:
     # Full run
     # ==========================================================
     def run(self):
+        run_start_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         self.logger.info("Starting RL Active Learning")
 
         # Warm-up
         labeled_dataset = Subset(self.dataset_train, self.labeled_indices)
         for ep in range(self.config.initial_training_epoch):
+            epoch_start = time.time()
             train_metrics = self.main_model.train_epoch(labeled_dataset, ep, self.config.initial_training_epoch)
 
             eval_metrics = self.main_model.evaluate(self.dataset_val)
-
+            epoch_time = time.time() - epoch_start
             self._log_metrics(
                 epoch=ep,
                 train_metrics=train_metrics,
                 eval_metrics=eval_metrics,
+                epoch_time=epoch_time,
             )
 
             self.save_results()
@@ -409,6 +416,13 @@ class ActiveLearningSystemRL:
             self.logger.info(f"\n=== Reinforcement AL Cycle {cycle + 1}/{self.config.al_cycles} ===")
             self.run_cycle()
 
+        run_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S") - run_start_time
+        self.logger.info(f"RL Active Learning completed in {run_time}")
+        self.history["run_time"] = run_time
+        system_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S") - self.system_start_time
+        self.logger.info(f"Total system time: {system_time}")
+        self.history["system_time"] = system_time
+        self.save_results()
         return self.history
 
 
@@ -416,13 +430,13 @@ class ActiveLearningSystemRL:
         self.history.setdefault("Reward", []).append(reward)
         self.logger.info(f"=== Reward {reward} ===")
 
-    def _log_metrics(self, epoch, train_metrics, eval_metrics):
+    def _log_metrics(self, epoch, train_metrics, eval_metrics, epoch_time):
         global_epoch = epoch + self.cycle * self.config.epochs_per_cycle
 
         self.history.setdefault("epoch", []).append(epoch)
         self.history.setdefault("global_epoch", []).append(global_epoch)
         self.history.setdefault("cycle", []).append(self.cycle)
-
+        self.history.setdefault("epoch_time", []).append(epoch_time)
         self.history.setdefault("train_loss", []).append(train_metrics["train_loss"])
         self.history.setdefault("val_dice", []).append(eval_metrics["dice"])
         self.history.setdefault("val_F1", []).append(eval_metrics["f1"])
