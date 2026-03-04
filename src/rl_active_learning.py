@@ -62,12 +62,21 @@ class ActiveLearningSystemRL:
         # --------------------
         # RL policy
         # --------------------
-        self.state_dim = 1024 + 3   # bottleneck + uncertainty
+        # Infer bottleneck dimension dynamically
+        sample_img, _ = self.dataset_train[0]
+        sample_img = sample_img.unsqueeze(0).to(self.device)
+
+        with torch.no_grad():
+            feat = self.oracle_model.model.get_bottleneck_features(sample_img)
+
+        bottleneck_dim = feat.shape[1]
+
+        self.state_dim = bottleneck_dim + 3  # +3 for uncertainty features
         self.policy = PolicyNet(
-    self.state_dim,
-    hidden_dim=self.config.policy_hidden,
-    num_budget_options=len(self.config.budget_options),
-).to(self.device)
+            self.state_dim,
+            hidden_dim=self.config.policy_hidden,
+            num_budget_options=len(self.config.budget_options),
+        ).to(self.device)
         self.policy_optimizer = torch.optim.Adam(
             self.policy.parameters(),
             lr=getattr(config, "policy_lr", 1e-4),

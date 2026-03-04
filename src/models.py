@@ -691,16 +691,15 @@ class DeepLabV3Model:
         self.config = config
         self.num_classes = num_classes
 
-        pretrained = getattr(config, "pretrained", True)
+        pretrained = getattr(config, "pretrained", False)
         weights = DeepLabV3_ResNet50_Weights.DEFAULT if pretrained else None
 
-        self.model = deeplabv3_resnet50(weights=weights)
+        base_model = deeplabv3_resnet50(weights=weights)
 
         # Replace classifier head
-        self.model.classifier[4] = nn.Conv2d(256, num_classes, kernel_size=1)
+        base_model.classifier[4] = nn.Conv2d(256, num_classes, kernel_size=1)
 
-        self.model = self.model.to(device)
-
+        self.model = DeepLabWithBottleneck(base_model).to(device)
         self.optimizer = torch.optim.Adam(
             self.model.parameters(),
             lr=getattr(config, "lr", 1e-4),
@@ -1000,3 +999,23 @@ class PolicyNet(nn.Module):
             budget_logit = self.budget_head(g).squeeze()         # scalar
 
         return image_logits, budget_logit
+
+class DeepLabWithBottleneck(nn.Module):
+    """
+    Wrap torchvision DeepLabV3 to expose get_bottleneck_features(x)
+    like your UNetExact does.
+    """
+    def __init__(self, deeplab_model: nn.Module):
+        super().__init__()
+        self.deeplab = deeplab_model
+
+    def forward(self, x):
+        return self.deeplab(x)
+
+    def get_bottleneck_features(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Return global pooled backbone features: [B, C]
+        Uses backbone 'out' feature map.
+        """
+        feats = self.deeplab.backbone(x)["out"]          # [B, C, H, W]
+        return feats.mean(dim=[2, 3])                    # [B, C]
