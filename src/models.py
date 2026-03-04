@@ -822,7 +822,24 @@ class DeepLabV3Model:
             "accuracy": float(acc),
             "pixel_acc": float(np.mean(pixel_accs)),
         }
+    def get_bottleneck_features(self, images: List[torch.Tensor]) -> torch.Tensor:
+        """
+        Extract backbone features for RL state.
+        Returns pooled feature vector per image: [N, C]
+        """
+        self.model.eval()
 
+        with torch.no_grad():
+            batch = _batched([_ensure_rgb(i) for i in images]).to(self.device)
+
+            # Get backbone features
+            features = self.model.backbone(batch)["out"]   # [B, C, H, W]
+
+            # Global average pooling
+            pooled = F.adaptive_avg_pool2d(features, 1)    # [B, C, 1, 1]
+            pooled = pooled.view(pooled.size(0), -1)       # [B, C]
+
+        return pooled.cpu()
     # ---- inference ----
     def predict(self, images: List[torch.Tensor]):
         self.model.eval()
