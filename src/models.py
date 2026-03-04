@@ -726,6 +726,7 @@ class DeepLabV3Model:
             shuffle=True,
             num_workers=getattr(self.config, "num_workers", 2),
             pin_memory=True,
+            drop_last=True,
         )
 
         total_loss = 0.0
