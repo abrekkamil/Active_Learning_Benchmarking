@@ -13,6 +13,7 @@ from torchvision.models.detection.faster_rcnn import FastRCNNPredictor
 from .base_model import BaseModel
 from .utils import _ensure_rgb
 
+from pycocotools import mask as maskUtils
 from pycocotools.cocoeval import COCOeval
 
 class MaskRCNNModel(BaseModel):
@@ -118,7 +119,6 @@ class MaskRCNNModel(BaseModel):
     # --------------------------------------------------
     # Evaluation
     # --------------------------------------------------
-
     def evaluate(self, dataset):
 
         self.model.eval()
@@ -136,34 +136,39 @@ class MaskRCNNModel(BaseModel):
 
         with torch.no_grad():
 
-            for images, targets in tqdm(loader, desc="Validation"):
+            for i, (images, targets) in enumerate(tqdm(loader, desc="Validation")):
 
                 images = [_ensure_rgb(img).to(self.device) for img in images]
 
                 outputs = self.model(images)
 
-                for output, target in zip(outputs, targets):
+                image_id = int(dataset.ids[i])
 
-                    image_id = int(target["image_id"].item())
+                output = outputs[0]
 
-                    boxes = output["boxes"].cpu().numpy()
-                    scores = output["scores"].cpu().numpy()
-                    labels = output["labels"].cpu().numpy()
-                    masks = output["masks"].cpu().numpy()
+                boxes = output["boxes"].cpu().numpy()
+                scores = output["scores"].cpu().numpy()
+                labels = output["labels"].cpu().numpy()
+                masks = output["masks"].cpu().numpy()
 
-                    for box, score, label, mask in zip(boxes, scores, labels, masks):
+                for box, score, label, mask in zip(boxes, scores, labels, masks):
 
-                        x1, y1, x2, y2 = box
-                        w = x2 - x1
-                        h = y2 - y1
+                    x1, y1, x2, y2 = box
+                    w = x2 - x1
+                    h = y2 - y1
 
-                        results.append({
-                            "image_id": image_id,
-                            "category_id": int(label),
-                            "bbox": [float(x1), float(y1), float(w), float(h)],
-                            "score": float(score),
-                            "segmentation": mask[0] > 0.5
-                        })
+                    # Convert mask to RLE
+                    binary_mask = (mask[0] > 0.5).astype(np.uint8)
+                    rle = maskUtils.encode(np.asfortranarray(binary_mask))
+                    rle["counts"] = rle["counts"].decode("utf-8")
+
+                    results.append({
+                        "image_id": image_id,
+                        "category_id": int(label),
+                        "bbox": [float(x1), float(y1), float(w), float(h)],
+                        "score": float(score),
+                        "segmentation": rle,
+                    })
 
         if len(results) == 0:
             return {
@@ -173,10 +178,7 @@ class MaskRCNNModel(BaseModel):
 
         coco_dt = coco_gt.loadRes(results)
 
-        # -------------------
-        # BBOX evaluation
-        # -------------------
-
+        # -------- bbox AP --------
         coco_eval_bbox = COCOeval(coco_gt, coco_dt, "bbox")
         coco_eval_bbox.evaluate()
         coco_eval_bbox.accumulate()
@@ -184,10 +186,7 @@ class MaskRCNNModel(BaseModel):
 
         bbox_ap = coco_eval_bbox.stats[0]
 
-        # -------------------
-        # MASK evaluation
-        # -------------------
-
+        # -------- mask AP --------
         coco_eval_mask = COCOeval(coco_gt, coco_dt, "segm")
         coco_eval_mask.evaluate()
         coco_eval_mask.accumulate()
