@@ -85,14 +85,16 @@ class MaskRCNNModel(BaseModel):
 
         pbar = tqdm(loader, desc=f"Epoch {epoch}/{total_epochs}", leave=False)
 
-        for images, targets in pbar:
+        for images, targets_raw in pbar:
 
             images = [_ensure_rgb(img).to(self.device) for img in images]
 
-            targets = [
-                {k: v.to(self.device) for k, v in t.items()}
-                for t in targets
-            ]
+            targets = []
+            for t in targets_raw:
+                targets.append({
+                    k: v.to(self.device) if torch.is_tensor(v) else v
+                    for k, v in t.items()
+                })
 
             loss_dict = self.model(images, targets)
 
