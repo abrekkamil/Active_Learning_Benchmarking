@@ -147,6 +147,7 @@ class MaskRCNNModel(BaseModel):
                     scores.append(outputs[0]["scores"].mean().item())
 
         if len(scores) == 0:
+            print("Warning: No detections found during evaluation. Returning zero scores.")
             return {"bbox_score": 0.0}
 
         return {
