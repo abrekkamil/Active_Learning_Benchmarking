@@ -10,3 +10,5 @@ from .feature_extractor import FeatureExtractor
 from .rl_models import PolicyNet
 
 from .model_factory import build_model
+
+print("Data modules package initialized.")
