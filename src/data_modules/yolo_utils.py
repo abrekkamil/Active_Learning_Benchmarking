@@ -396,7 +396,262 @@ def prepare_yolo_from_coco_auto(
     print(f"[coco] wrote {yaml_path}")
     return yaml_path
 
+# -----------------------------
+# YOLO -> COCO (instance segmentation)
+# -----------------------------
 
+def convert_yolo_to_coco(
+    yolo_root: Union[str, Path],
+    output_json: Union[str, Path],
+    images_dir: Optional[Union[str, Path]] = None,
+):
+    """
+    Converts YOLO detection or YOLO segmentation dataset to COCO format.
+    """
+
+    yolo_root = Path(yolo_root)
+    images_dir = Path(images_dir) if images_dir else yolo_root / "images"
+    labels_dir = yolo_root / "labels"
+
+    images = []
+    annotations = []
+    categories = {}
+
+    ann_id = 1
+    img_id = 1
+
+    for img_path in sorted(_list_images(images_dir)):
+
+        img = Image.open(img_path)
+        w, h = img.size
+
+        images.append({
+            "id": img_id,
+            "file_name": img_path.name,
+            "width": w,
+            "height": h,
+        })
+
+        label_path = labels_dir / f"{img_path.stem}.txt"
+
+        if label_path.exists():
+
+            for line in label_path.read_text().splitlines():
+
+                parts = line.strip().split()
+                cls = int(parts[0])
+
+                categories.setdefault(cls, f"class_{cls}")
+
+                coords = list(map(float, parts[1:]))
+
+                # ---------- detection ----------
+                if len(coords) == 4:
+
+                    cx, cy, bw, bh = coords
+
+                    bw *= w
+                    bh *= h
+                    x = (cx * w) - bw / 2
+                    y = (cy * h) - bh / 2
+
+                    segmentation = []
+
+                # ---------- segmentation ----------
+                else:
+
+                    poly = []
+                    for i in range(0, len(coords), 2):
+                        px = coords[i] * w
+                        py = coords[i+1] * h
+                        poly.extend([px, py])
+
+                    xs = poly[0::2]
+                    ys = poly[1::2]
+
+                    x = min(xs)
+                    y = min(ys)
+                    bw = max(xs) - x
+                    bh = max(ys) - y
+
+                    segmentation = [poly]
+
+                annotations.append({
+                    "id": ann_id,
+                    "image_id": img_id,
+                    "category_id": cls,
+                    "bbox": [x, y, bw, bh],
+                    "area": bw * bh,
+                    "iscrowd": 0,
+                    "segmentation": segmentation,
+                })
+
+                ann_id += 1
+
+        img_id += 1
+
+    coco = {
+        "info": {},
+        "licenses": [],
+        "images": images,
+        "annotations": annotations,
+        "categories": [
+            {"id": cid, "name": name}
+            for cid, name in categories.items()
+        ],
+    }
+
+    output_json = Path(output_json)
+    output_json.write_text(json.dumps(coco))
+
+    print(f"COCO file written to {output_json}")
+
+# -----------------------------
+# YOLO -> COCO Wrapper (instance segmentation / detection)
+# -----------------------------
+
+def prepare_coco_from_yolo(config, out_root: Optional[Union[str, Path]] = None) -> Path:
+    """
+    Converts a YOLO dataset into COCO format so it can be used with
+    MaskRCNN or other COCO-based loaders.
+
+    Expected YOLO structure:
+        dataset/
+            images/
+                train/
+                val/
+            labels/
+                train/
+                val/
+
+    Output:
+        dataset/coco/
+            train/_annotations.coco.json
+            val/_annotations.coco.json
+    """
+
+    root = Path(config.data_dir)
+
+    images_root = root / "images"
+    labels_root = root / "labels"
+
+    if not images_root.exists():
+        raise FileNotFoundError(f"YOLO images folder not found: {images_root}")
+
+    if not labels_root.exists():
+        raise FileNotFoundError(f"YOLO labels folder not found: {labels_root}")
+
+    out_root = Path(out_root) if out_root else (root / "coco")
+
+    splits = ["train", "val"]
+
+    for split in splits:
+
+        img_dir = images_root / split
+        lbl_dir = labels_root / split
+
+        out_dir = _ensure_dir(out_root / split)
+        out_json = out_dir / "_annotations.coco.json"
+
+        images = []
+        annotations = []
+        categories = {}
+
+        ann_id = 1
+        img_id = 1
+
+        for img_path in sorted(_list_images(img_dir)):
+
+            img = Image.open(img_path)
+            w, h = img.size
+
+            images.append({
+                "id": img_id,
+                "file_name": img_path.name,
+                "width": w,
+                "height": h,
+            })
+
+            label_file = lbl_dir / f"{img_path.stem}.txt"
+
+            if label_file.exists():
+
+                for line in label_file.read_text().splitlines():
+
+                    parts = line.split()
+                    cls = int(parts[0])
+                    coords = list(map(float, parts[1:]))
+
+                    categories.setdefault(cls, f"class_{cls}")
+
+                    # -----------------
+                    # YOLO detection
+                    # -----------------
+                    if len(coords) == 4:
+
+                        cx, cy, bw, bh = coords
+
+                        bw *= w
+                        bh *= h
+
+                        x = (cx * w) - bw / 2
+                        y = (cy * h) - bh / 2
+
+                        segmentation = []
+
+                    # -----------------
+                    # YOLO segmentation
+                    # -----------------
+                    else:
+
+                        poly = []
+                        for i in range(0, len(coords), 2):
+                            px = coords[i] * w
+                            py = coords[i + 1] * h
+                            poly.extend([px, py])
+
+                        xs = poly[0::2]
+                        ys = poly[1::2]
+
+                        x = min(xs)
+                        y = min(ys)
+                        bw = max(xs) - x
+                        bh = max(ys) - y
+
+                        segmentation = [poly]
+
+                    annotations.append({
+                        "id": ann_id,
+                        "image_id": img_id,
+                        "category_id": cls,
+                        "bbox": [x, y, bw, bh],
+                        "area": bw * bh,
+                        "iscrowd": 0,
+                        "segmentation": segmentation,
+                    })
+
+                    ann_id += 1
+
+            img_id += 1
+
+        coco = {
+            "info": {},
+            "licenses": [],
+            "images": images,
+            "annotations": annotations,
+            "categories": [
+                {"id": cid, "name": name}
+                for cid, name in categories.items()
+            ],
+        }
+
+        out_json.write_text(json.dumps(coco))
+
+        print(f"[yolo->{split}] wrote {out_json}")
+
+    print(f"[yolo->coco] dataset ready at {out_root}")
+
+    return out_root
 # -----------------------------
 # Public entrypoint: use config only
 # -----------------------------
