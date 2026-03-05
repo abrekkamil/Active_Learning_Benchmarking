@@ -13,6 +13,7 @@ from torchvision.models.detection.faster_rcnn import FastRCNNPredictor
 from .base_model import BaseModel
 from .utils import _ensure_rgb
 
+from pycocotools.cocoeval import COCOeval
 
 class MaskRCNNModel(BaseModel):
     """
@@ -118,7 +119,9 @@ class MaskRCNNModel(BaseModel):
     # Evaluation
     # --------------------------------------------------
 
-    def evaluate(self, dataset) -> Dict[str, float]:
+    def evaluate(self, dataset):
+
+        self.model.eval()
 
         loader = DataLoader(
             dataset,
@@ -126,33 +129,75 @@ class MaskRCNNModel(BaseModel):
             shuffle=False,
             num_workers=getattr(self.config, "num_workers", 2),
             collate_fn=lambda x: tuple(zip(*x)),
-            pin_memory=True,
         )
 
-        self.model.eval()
-
-        scores = []
+        coco_gt = dataset.coco
+        results = []
 
         with torch.no_grad():
 
-            pbar = tqdm(loader, desc="Validation", leave=False)
-
-            for images, targets in pbar:
+            for images, targets in tqdm(loader, desc="Validation"):
 
                 images = [_ensure_rgb(img).to(self.device) for img in images]
 
                 outputs = self.model(images)
-                print("predictions:", len(outputs[0]["boxes"]))
-                print("scores:", outputs[0]["scores"])
-                if len(outputs[0]["scores"]) > 0:
-                    scores.append(outputs[0]["scores"].mean().item())
 
-        if len(scores) == 0:
-            print("Warning: No detections found during evaluation. Returning zero scores.")
-            return {"bbox_score": 0.0}
+                for output, target in zip(outputs, targets):
+
+                    image_id = int(target["image_id"].item())
+
+                    boxes = output["boxes"].cpu().numpy()
+                    scores = output["scores"].cpu().numpy()
+                    labels = output["labels"].cpu().numpy()
+                    masks = output["masks"].cpu().numpy()
+
+                    for box, score, label, mask in zip(boxes, scores, labels, masks):
+
+                        x1, y1, x2, y2 = box
+                        w = x2 - x1
+                        h = y2 - y1
+
+                        results.append({
+                            "image_id": image_id,
+                            "category_id": int(label),
+                            "bbox": [float(x1), float(y1), float(w), float(h)],
+                            "score": float(score),
+                            "segmentation": mask[0] > 0.5
+                        })
+
+        if len(results) == 0:
+            return {
+                "bbox_AP": 0.0,
+                "mask_AP": 0.0,
+            }
+
+        coco_dt = coco_gt.loadRes(results)
+
+        # -------------------
+        # BBOX evaluation
+        # -------------------
+
+        coco_eval_bbox = COCOeval(coco_gt, coco_dt, "bbox")
+        coco_eval_bbox.evaluate()
+        coco_eval_bbox.accumulate()
+        coco_eval_bbox.summarize()
+
+        bbox_ap = coco_eval_bbox.stats[0]
+
+        # -------------------
+        # MASK evaluation
+        # -------------------
+
+        coco_eval_mask = COCOeval(coco_gt, coco_dt, "segm")
+        coco_eval_mask.evaluate()
+        coco_eval_mask.accumulate()
+        coco_eval_mask.summarize()
+
+        mask_ap = coco_eval_mask.stats[0]
 
         return {
-            "bbox_score": float(np.mean(scores))
+            "bbox_AP": float(bbox_ap),
+            "mask_AP": float(mask_ap),
         }
 
     # --------------------------------------------------
