@@ -58,8 +58,7 @@ class CocoDetectionDataset(Dataset):
                 torch.tensor(self.coco.annToMask(ann), dtype=torch.uint8)
             )
             areas.append(ann["area"])
-            iscrowd.append(ann["iscrowd"], 0)
-
+            iscrowd.append(ann.get("iscrowd", 0))
         if boxes:
             boxes = torch.tensor(boxes, dtype=torch.float32)
             boxes[:, 2:] += boxes[:, :2]  # xywh → xyxy
