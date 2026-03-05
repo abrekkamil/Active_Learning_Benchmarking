@@ -2,7 +2,7 @@ import torch
 import numpy as np
 from torchvision import transforms
 from PIL import Image
-from .coco_detection import CocoDetectionDataset
+from .coco_instance import CocoDetectionDataset
 import torch.nn.functional as F
 
 class CocoSemanticSegmentationDataset(CocoDetectionDataset):

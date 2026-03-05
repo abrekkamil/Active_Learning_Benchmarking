@@ -95,7 +95,8 @@ class MaskRCNNModel(BaseModel):
                     k: v.to(self.device) if torch.is_tensor(v) else v
                     for k, v in t.items()
                 })
-
+            if all(len(t["boxes"]) == 0 for t in targets):
+                continue
             loss_dict = self.model(images, targets)
 
             losses = sum(loss for loss in loss_dict.values())
