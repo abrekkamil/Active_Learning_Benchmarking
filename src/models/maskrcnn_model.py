@@ -132,6 +132,12 @@ class MaskRCNNModel(BaseModel):
         )
 
         coco_gt = dataset.coco
+        # Fix missing COCO fields
+        if "info" not in coco_gt.dataset:
+            coco_gt.dataset["info"] = {}
+
+        if "licenses" not in coco_gt.dataset:
+            coco_gt.dataset["licenses"] = []
         results = []
 
         with torch.no_grad():
