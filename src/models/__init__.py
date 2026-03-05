@@ -11,4 +11,4 @@ from .rl_models import PolicyNet
 
 from .model_factory import build_model
 
-print("Data modules package initialized.")
+print("Model packages initialized.")
