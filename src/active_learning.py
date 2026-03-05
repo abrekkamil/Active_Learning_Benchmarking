@@ -12,7 +12,7 @@ from .cold_start_strategies import ColdStartStrategies
 from .query_strategies import QueryStrategies
 from .utils import setup_logging, save_checkpoint, load_checkpoint
 from .data_modules.factory import load_dataset
-
+from .models import build_model
 
 class ActiveLearningSystem:
     """
@@ -46,17 +46,23 @@ class ActiveLearningSystem:
         self.query_strategy = QueryStrategies(config)
         
         # Initialize model
-        if config.model_name == "maskrcnn":
-            from .models import MaskRCNNModel
-            self.model = MaskRCNNModel(config.num_classes, self.device, config)
-        elif config.model_name == "unet":
-            from .models import UNetModel
-            self.model = UNetModel(config.num_classes, self.device,config)
-        elif config.model_name == "Deeplabv3":
-            from .models import DeepLabV3Model
-            self.model = DeepLabV3Model(config.num_classes, self.device, config)
-        else:
-            raise ValueError("Unknown task")
+        model = build_model(
+            config.model_name,
+            num_classes=config.num_classes,
+            device=self.device,
+            config=config,
+        )
+        # if config.model_name == "maskrcnn":
+        #     from .models import MaskRCNNModel
+        #     self.model = MaskRCNNModel(config.num_classes, self.device, config)
+        # elif config.model_name == "unet":
+        #     from .models import UNetModel
+        #     self.model = UNetModel(config.num_classes, self.device,config)
+        # elif config.model_name == "Deeplabv3":
+        #     from .models import DeepLabV3Model
+        #     self.model = DeepLabV3Model(config.num_classes, self.device, config)
+        # else:
+        #     raise ValueError("Unknown task")
         
         # Initialize pools
         if not skip_cold_start:
