@@ -181,7 +181,7 @@ class ActiveLearningSystem:
             cycle_metrics.append(eval_metrics)
 
             # Save checkpoint
-            current_score = eval_metrics["f1"] if "f1" in eval_metrics else eval_metrics["dice"]
+            current_score = self.get_primary_metric(self.config.task, eval_metrics)
             if current_score > self.best_score:
                 self.best_score = current_score
                 save_checkpoint(
@@ -282,35 +282,78 @@ class ActiveLearningSystem:
         self.history.setdefault("global_epoch", []).append(global_epoch)
         self.history.setdefault("cycle", []).append(self.cycle)
 
-        self.history.setdefault("train_loss", []).append(train_metrics["train_loss"])
-        self.history.setdefault("val_dice", []).append(eval_metrics["dice"])
-        self.history.setdefault("val_F1", []).append(eval_metrics["f1"])
-        self.history.setdefault("val_mean_iou", []).append(eval_metrics["mean_iou"])
+        self.history.setdefault("train_loss", []).append(train_metrics.get("train_loss", 0))
         self.history.setdefault("labeled_count", []).append(len(self.labeled_indices))
         self.history.setdefault("train_time", []).append(train_time)
 
-        self.logger.info(
-            f"Epoch {epoch+1} | "
-            f"Loss: {train_metrics['train_loss']:.4f} | "
-            f"F1: {eval_metrics.get('f1', 0):.4f} | "
-            f"Dice: {eval_metrics['dice']:.4f} | "
-            f"Mean IoU: {eval_metrics['mean_iou']:.4f} | "
-            f"Labeled: {len(self.labeled_indices)}"
-        )
+        # ----------------------------
+        # Semantic segmentation models
+        # ----------------------------
+        if self.config.task == "segmentation":
 
-        if self.config.use_wandb:
-            log_to_wandb(
-                {
-                    "epoch": epoch + 1,
-                    "global_epoch": global_epoch,
-                    "cycle": self.cycle,
-                    "train_loss": train_metrics["train_loss"],
-                    "val_dice": eval_metrics["dice"],
-                    "val_iou": eval_metrics["mean_iou"],
-                    "labeled_count": len(self.labeled_indices),
-                },
-                step=global_epoch,
+            dice = eval_metrics.get("dice", 0)
+            f1 = eval_metrics.get("f1", 0)
+            miou = eval_metrics.get("mean_iou", 0)
+
+            self.history.setdefault("val_dice", []).append(dice)
+            self.history.setdefault("val_F1", []).append(f1)
+            self.history.setdefault("val_mean_iou", []).append(miou)
+
+            self.logger.info(
+                f"Epoch {epoch+1} | "
+                f"Loss: {train_metrics.get('train_loss',0):.4f} | "
+                f"F1: {f1:.4f} | "
+                f"Dice: {dice:.4f} | "
+                f"Mean IoU: {miou:.4f} | "
+                f"Labeled: {len(self.labeled_indices)}"
             )
+
+            if self.config.use_wandb:
+                log_to_wandb(
+                    {
+                        "epoch": epoch + 1,
+                        "global_epoch": global_epoch,
+                        "cycle": self.cycle,
+                        "train_loss": train_metrics.get("train_loss",0),
+                        "val_dice": dice,
+                        "val_iou": miou,
+                        "labeled_count": len(self.labeled_indices),
+                    },
+                    step=global_epoch,
+                )
+
+        # ---------------------------------
+        # Instance segmentation / detection
+        # ---------------------------------
+        elif self.config.task in ["instance_segmentation", "detection"]:
+
+            mask_ap = eval_metrics.get("mask_AP", 0)
+            bbox_ap = eval_metrics.get("bbox_AP", 0)
+
+            self.history.setdefault("val_mask_AP", []).append(mask_ap)
+            self.history.setdefault("val_bbox_AP", []).append(bbox_ap)
+
+            self.logger.info(
+                f"Epoch {epoch+1} | "
+                f"Loss: {train_metrics.get('train_loss',0):.4f} | "
+                f"Mask AP: {mask_ap:.4f} | "
+                f"BBox AP: {bbox_ap:.4f} | "
+                f"Labeled: {len(self.labeled_indices)}"
+            )
+
+            if self.config.use_wandb:
+                log_to_wandb(
+                    {
+                        "epoch": epoch + 1,
+                        "global_epoch": global_epoch,
+                        "cycle": self.cycle,
+                        "train_loss": train_metrics.get("train_loss",0),
+                        "val_mask_AP": mask_ap,
+                        "val_bbox_AP": bbox_ap,
+                        "labeled_count": len(self.labeled_indices),
+                    },
+                    step=global_epoch,
+                )
 
     def save_results(self):
         date_folder = datetime.datetime.now().strftime("%m_%d")
@@ -358,4 +401,15 @@ class ActiveLearningSystem:
     def _config_to_dict(self):
         # works for argparse.Namespace or simple config objects
         return vars(self.config)
+    
+    def get_primary_metric(self, task, metrics):
+
+        if task == "segmentation":
+            return metrics.get("f1", metrics.get("dice", 0))
+
+        if task == "instance_segmentation":
+            return metrics.get("mask_AP", 0)
+
+        if task == "detection":
+            return metrics.get("bbox_AP", 0)
     
