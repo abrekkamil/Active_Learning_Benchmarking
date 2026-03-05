@@ -8,3 +8,5 @@ from .weak_model import WeakModel
 from .feature_extractor import FeatureExtractor
 
 from .rl_models import PolicyNet
+
+from .model_factory import build_model

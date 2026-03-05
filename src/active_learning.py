@@ -46,7 +46,7 @@ class ActiveLearningSystem:
         self.query_strategy = QueryStrategies(config)
         
         # Initialize model
-        model = build_model(
+        self.model = build_model(
             config.model_name,
             num_classes=config.num_classes,
             device=self.device,
