@@ -5,7 +5,7 @@ def load_dataset(config, split):
             config.data_dir, split, config.img_size
         )
 
-    if config.dataset_type == "coco_detection":
+    if config.dataset_type == "coco_instance":
         from .coco_instance import CocoInstanceSegmentationDataset
         return CocoInstanceSegmentationDataset(
             config.data_dir, split, is_train=(split == "train")
