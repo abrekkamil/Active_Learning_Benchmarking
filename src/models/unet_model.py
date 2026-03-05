@@ -6,8 +6,16 @@ import torch.nn.functional as F
 
 from torch.utils.data import DataLoader
 from tqdm import tqdm
-
+from typing import List, Dict
 from .utils import _ensure_rgb, _batched
+
+from sklearn.metrics import (
+    precision_score,
+    recall_score,
+    f1_score,
+    jaccard_score,
+    accuracy_score,
+)
 
 class UNetModel:
     """
