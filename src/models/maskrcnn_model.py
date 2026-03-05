@@ -142,7 +142,8 @@ class MaskRCNNModel(BaseModel):
                 images = [_ensure_rgb(img).to(self.device) for img in images]
 
                 outputs = self.model(images)
-
+                print("predictions:", len(outputs[0]["boxes"]))
+                print("scores:", outputs[0]["scores"])
                 if len(outputs[0]["scores"]) > 0:
                     scores.append(outputs[0]["scores"].mean().item())
 
