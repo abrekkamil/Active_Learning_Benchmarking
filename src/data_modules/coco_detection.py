@@ -49,7 +49,7 @@ class CocoDetectionDataset(Dataset):
         ann_ids = self.coco.getAnnIds(imgIds=img_id)
         anns = self.coco.loadAnns(ann_ids)
 
-        boxes, labels, masks = [], [], []
+        boxes, labels, masks, areas, iscrowd = [], [], [], [], []
 
         for ann in anns:
             boxes.append(ann["bbox"])
@@ -57,20 +57,28 @@ class CocoDetectionDataset(Dataset):
             masks.append(
                 torch.tensor(self.coco.annToMask(ann), dtype=torch.uint8)
             )
+            areas.append(ann["area"])
+            iscrowd.append(ann["iscrowd"], 0)
 
         if boxes:
             boxes = torch.tensor(boxes, dtype=torch.float32)
             boxes[:, 2:] += boxes[:, :2]  # xywh → xyxy
             labels = torch.tensor(labels)
             masks = torch.stack(masks)
+            areas = torch.tensor(areas, dtype=torch.float32)
+            iscrowd = torch.tensor(iscrowd, dtype=torch.int64)
         else:
             boxes = torch.zeros((0, 4))
             labels = torch.zeros((0,), dtype=torch.long)
             masks = torch.zeros((0, 1, 1), dtype=torch.uint8)
+            areas = torch.tensor(areas, dtype=torch.float32)
+            iscrowd = torch.tensor(iscrowd, dtype=torch.int64)
 
         return {
             "image_id": torch.tensor([img_id]),
             "boxes": boxes,
             "labels": labels,
             "masks": masks,
+            "area": areas,
+            "iscrowd": iscrowd,
         }
