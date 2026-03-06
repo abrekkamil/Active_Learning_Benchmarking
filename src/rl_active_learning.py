@@ -241,35 +241,82 @@ class ActiveLearningSystemRL:
             return dataset.coco.imgs[img_id]["file_name"]
 
         return f"{source}_{idx}"   
-    def _compute_state(self, images: torch.Tensor) -> torch.Tensor:
-        """
-        images: [B,3,H,W]
-        returns: [B, 1027]
-        """
+    def _compute_state(self, images: torch.Tensor):
+
         with torch.no_grad():
+
             feats = self.oracle_model.model.get_bottleneck_features(images)
+
             outputs = self.oracle_model.model(images)
-            # Handle different model outputs
-            if isinstance(outputs, dict):                 # DeepLabV3
-                logits = outputs["out"]
-            elif hasattr(outputs, "logits"):              # SegFormer
-                logits = outputs.logits
-            else:                                         # UNet
-                logits = outputs
 
+            # =========================
+            # INSTANCE SEGMENTATION
+            # =========================
+            if self.config.task == "instance_segmentation":
 
-            probs = F.softmax(logits, dim=1)
-            entropy = -(probs * torch.log(probs + 1e-8)).sum(dim=1).mean(dim=[1, 2])
-            confidence = probs.max(dim=1).values.mean(dim=[1, 2])
-            margin = torch.topk(probs, 2, dim=1).values
-            margin = (margin[:, 0] - margin[:, 1]).mean(dim=[1, 2])
+                entropy_list = []
+                confidence_list = []
+                margin_list = []
+
+                for out in outputs:
+
+                    scores = out["scores"]
+
+                    if len(scores) == 0:
+                        entropy_list.append(torch.tensor(0.0, device=self.device))
+                        confidence_list.append(torch.tensor(0.0, device=self.device))
+                        margin_list.append(torch.tensor(0.0, device=self.device))
+                        continue
+
+                    probs = scores / scores.sum()
+
+                    entropy = -(probs * torch.log(probs + 1e-8)).sum()
+
+                    confidence = scores.mean()
+
+                    if len(scores) > 1:
+                        top2 = torch.topk(scores, 2).values
+                        margin = top2[0] - top2[1]
+                    else:
+                        margin = scores[0]
+
+                    entropy_list.append(entropy)
+                    confidence_list.append(confidence)
+                    margin_list.append(margin)
+
+                entropy = torch.stack(entropy_list)
+                confidence = torch.stack(confidence_list)
+                margin = torch.stack(margin_list)
+
+            # =========================
+            # SEMANTIC SEGMENTATION
+            # =========================
+            else:
+
+                if isinstance(outputs, dict):
+                    logits = outputs["out"]
+
+                elif hasattr(outputs, "logits"):
+                    logits = outputs.logits
+
+                else:
+                    logits = outputs
+
+                probs = F.softmax(logits, dim=1)
+
+                entropy = -(probs * torch.log(probs + 1e-8)).sum(dim=1).mean(dim=[1,2])
+
+                confidence = probs.max(dim=1).values.mean(dim=[1,2])
+
+                margin = torch.topk(probs, 2, dim=1).values
+                margin = (margin[:,0] - margin[:,1]).mean(dim=[1,2])
 
             uncertainty = torch.stack(
-                [entropy, 1.0 - confidence, 1.0 - margin], dim=1
+                [entropy, 1.0 - confidence, 1.0 - margin],
+                dim=1
             )
 
             return torch.cat([feats, uncertainty], dim=1)
-
     # ==========================================================
     # RL query step
     # ==========================================================
