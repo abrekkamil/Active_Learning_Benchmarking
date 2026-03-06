@@ -13,8 +13,32 @@ from .models import UNetModel, PolicyNet
 from .utils import setup_logging, set_seed
 from .data_modules.factory import load_dataset
 from .cold_start_strategies import ColdStartStrategies
+from .models import build_model
+
 import wandb
 
+class MixedDataset(torch.utils.data.Dataset):
+
+    def __init__(self, dataset_train, dataset_pool, samples):
+        self.dataset_train = dataset_train
+        self.dataset_pool = dataset_pool
+        self.samples = samples  # list of ("train"/"pool", idx)
+
+    def __len__(self):
+        return len(self.samples)
+
+    def __getitem__(self, i):
+        source, idx = self.samples[i]
+
+        if source == "train":
+            return self.dataset_train[idx]
+
+        elif source == "pool":
+            return self.dataset_pool[idx]
+
+        else:
+            raise ValueError(f"Unknown source: {source}")
+        
 
 class ActiveLearningSystemRL:
     """
@@ -40,24 +64,38 @@ class ActiveLearningSystemRL:
         # --------------------
         self.dataset_train = load_dataset(config, split="train")
         self.dataset_val   = load_dataset(config, split="val")
-
+        self.dataset_pool = None
+        if config.pool:
+            self.dataset_pool = load_dataset(config, split="pool")
         # --------------------
         # Models
         # --------------------
-        if config.model_name == "maskrcnn":
-            from .models import MaskRCNNModel
-            self.oracle_model = MaskRCNNModel(config.num_classes, self.device, config)
-            self.main_model = MaskRCNNModel(config.num_classes, self.device, config)
-        elif config.model_name == "unet":
-            from .models import UNetModel
-            self.oracle_model = UNetModel(config.num_classes, self.device,config)
-            self.main_model = UNetModel(config.num_classes, self.device,config)
-        elif config.model_name == "Deeplabv3":
-            from .models import DeepLabV3Model
-            self.oracle_model = DeepLabV3Model(config.num_classes, self.device, config)
-            self.main_model = DeepLabV3Model(config.num_classes, self.device, config)
-        else:
-            raise ValueError("Unknown task")
+        self.oracle_model = build_model(
+            config.model_name,
+            num_classes=config.num_classes,
+            device=self.device,
+            config=config,
+        )
+        self.main_model = build_model(
+            config.model_name,
+            num_classes=config.num_classes,
+            device=self.device,
+            config=config,
+        )
+        # if config.model_name == "maskrcnn":
+        #     from .models import MaskRCNNModel
+        #     self.oracle_model = MaskRCNNModel(config.num_classes, self.device, config)
+        #     self.main_model = MaskRCNNModel(config.num_classes, self.device, config)
+        # elif config.model_name == "unet":
+        #     from .models import UNetModel
+        #     self.oracle_model = UNetModel(config.num_classes, self.device,config)
+        #     self.main_model = UNetModel(config.num_classes, self.device,config)
+        # elif config.model_name == "Deeplabv3":
+        #     from .models import DeepLabV3Model
+        #     self.oracle_model = DeepLabV3Model(config.num_classes, self.device, config)
+        #     self.main_model = DeepLabV3Model(config.num_classes, self.device, config)
+        # else:
+        #     raise ValueError("Unknown task")
 
 
         # --------------------
@@ -89,11 +127,14 @@ class ActiveLearningSystemRL:
         # --------------------
         # Pools
         # --------------------
-        all_indices = list(range(len(self.dataset_train)))
-
+        train_indices = list(range(len(self.dataset_train)))
+        pool_indices = list(range(len(self.dataset_pool))) if config.pool else []
+        all_samples = [("train", i) for i in train_indices] + \
+              [("pool", i) for i in pool_indices]
+        
         if skip_cold_start:
             # FULL DATASET (upper bound)
-            self.labeled_indices = all_indices
+            self.labeled_indices = all_samples
             self.unlabeled_indices = []
 
             self.logger.info(
@@ -102,21 +143,22 @@ class ActiveLearningSystemRL:
 
         else:
             n_init = (
-                int(config.initial_labeled * len(all_indices))
+                int(config.initial_labeled * len(train_indices))
                 if config.initial_labeled <= 1
                 else int(config.initial_labeled)
             )
 
             cold_start = ColdStartStrategies(self.dataset_train, config)
 
-            self.labeled_indices = cold_start.apply(
+            labeled_train = cold_start.apply(
                 strategy_name=config.cold_start_strategy,
                 n_samples=n_init,
-                all_indices=all_indices,
+                all_indices=train_indices
             )
+            self.labeled_indices = [("train", i) for i in labeled_train]
 
             self.unlabeled_indices = [
-                i for i in all_indices if i not in self.labeled_indices
+                s for s in all_samples if s not in self.labeled_indices
             ]
 
             self.logger.info(
@@ -141,7 +183,11 @@ class ActiveLearningSystemRL:
         # --------------------
         self.logger.info("Training oracle model on initial labeled set")
 
-        oracle_dataset = Subset(self.dataset_train, self.labeled_indices)
+        oracle_dataset = MixedDataset(
+            self.dataset_train,
+            self.dataset_pool,
+            self.labeled_indices
+        )
         for ep in range(self.config.oracle_epochs):
             self.oracle_model.train_epoch(
                 oracle_dataset, ep, self.config.oracle_epochs
@@ -158,11 +204,13 @@ class ActiveLearningSystemRL:
         Manually set the initial labeled pool (override cold start).
         Useful for cold start experiments and ablations.
         """
-        all_indices = list(range(len(self.dataset_train)))
+        all_samples = [("train", i) for i in range(len(self.dataset_train))]
+        if self.config.pool:
+            all_samples += [("pool", i) for i in range(len(self.dataset_pool))]
 
         self.labeled_indices = list(labeled_indices)
         self.unlabeled_indices = [
-            i for i in all_indices if i not in self.labeled_indices
+            i for i in all_samples if i not in self.labeled_indices
         ]
 
         self.logger.info(
@@ -170,8 +218,28 @@ class ActiveLearningSystemRL:
             f"{len(self.labeled_indices)} labeled, "
             f"{len(self.unlabeled_indices)} unlabeled"
         )
+    def get_primary_metric(self, task, metrics):
 
-        
+        if task == "segmentation":
+            return metrics.get("f1", 0)
+
+        if task == "instance_segmentation":
+            return metrics.get("mask_AP", 0)
+
+        if task == "detection":
+            return metrics.get("bbox_AP", 0)
+
+        return 0
+
+    def _get_sample_name(self, source, idx):
+
+        dataset = self.dataset_train if source == "train" else self.dataset_pool
+
+        if hasattr(dataset, "coco"):
+            img_id = dataset.ids[idx]
+            return dataset.coco.imgs[img_id]["file_name"]
+
+        return f"{source}_{idx}"   
     def _compute_state(self, images: torch.Tensor) -> torch.Tensor:
         """
         images: [B,3,H,W]
@@ -212,15 +280,14 @@ class ActiveLearningSystemRL:
         # ==========================================================
         # Build pool
         # ==========================================================
-        pool = np.random.choice(
-            self.unlabeled_indices,
-            size=len(self.unlabeled_indices),
-            replace=False,
-        ).tolist()
+        unlabeled_dataset = MixedDataset(
+            self.dataset_train,
+            self.dataset_pool,
+            self.unlabeled_indices
+        )
 
-        subset = Subset(self.dataset_train, pool)
         loader = DataLoader(
-            subset,
+            unlabeled_dataset,
             batch_size=self.config.batch_size,
             shuffle=False,
             num_workers=self.config.num_workers,
@@ -245,7 +312,10 @@ class ActiveLearningSystemRL:
         _, candidate_idx = torch.topk(entropy_scores, top_k)
 
         candidate_states = states[candidate_idx]
-        candidate_pool = [pool[i] for i in candidate_idx.tolist()]
+
+        candidate_pool = [
+            self.unlabeled_indices[i] for i in candidate_idx.tolist()
+        ]
 
         # ==========================================================
         # Policy Forward
@@ -254,7 +324,7 @@ class ActiveLearningSystemRL:
         image_logits, budget_logits = self.policy(candidate_states, global_state)
 
         # ==========================================================
-        # --------- DYNAMIC QUERY SIZE ------------------------------
+        # Query size
         # ==========================================================
         if getattr(self.config, "dynamic_query_size", False):
 
@@ -270,15 +340,11 @@ class ActiveLearningSystemRL:
             entropy_budget = -(p * torch.log(p + 1e-12) +
                             (1 - p) * torch.log(1 - p + 1e-12))
 
-        # ==========================================================
-        # --------- FIXED QUERY SIZE -------------------------------
-        # ==========================================================
         else:
 
             budget = self.config.query_size
             budget = min(budget, len(candidate_pool))
 
-            # no gradient from budget in fixed mode
             log_prob_budget = torch.tensor(0.0, device=self.device)
             entropy_budget = torch.tensor(0.0, device=self.device)
 
@@ -289,6 +355,7 @@ class ActiveLearningSystemRL:
             image_logits.squeeze() / self.policy_temp,
             dim=0
         )
+
         image_probs = image_probs.clamp_min(1e-12)
 
         selected_pos = torch.multinomial(
@@ -308,9 +375,30 @@ class ActiveLearningSystemRL:
         selected_indices = [
             candidate_pool[i] for i in selected_pos.tolist()
         ]
+        selected_samples_info = []
 
+        for source, idx in selected_indices:
+
+            name = self._get_sample_name(source, idx)
+
+            selected_samples_info.append({
+                "source": source,
+                "index": idx,
+                "name": name
+    })
+        self.logger.info(f"Selected {len(selected_indices)} samples with budget {budget}")
+        self.logger.info(f"Selected samples: {selected_samples_info}")
+        self.history.setdefault("selected_samples", []).append(selected_samples_info)
+        n_train = sum(1 for s,_ in selected_indices if s == "train")
+        n_pool = sum(1 for s,_ in selected_indices if s == "pool")
+        self.logger.info(
+            f"Selected {len(selected_indices)} samples "
+            f"({n_train} train, {n_pool} pool)"
+        )
+
+        self.history.setdefault("selected_train_count", []).append(n_train)
+        self.history.setdefault("selected_pool_count", []).append(n_pool)
         return selected_indices, log_prob_sum, entropy, budget
-    
     # ==========================================================
     # One AL cycle
     # ==========================================================
@@ -331,8 +419,12 @@ class ActiveLearningSystemRL:
             i for i in self.unlabeled_indices if i not in new_indices
         ]
 
-        # Train
-        labeled_dataset = Subset(self.dataset_train, self.labeled_indices)
+        # TrainSubset
+        labeled_dataset = MixedDataset(
+                self.dataset_train,
+                self.dataset_pool,
+                self.labeled_indices
+            )
         for ep in range(self.config.epochs_per_cycle):
             epoch_start = time.time()
             train_metrics = self.main_model.train_epoch(labeled_dataset, ep, self.config.epochs_per_cycle)
@@ -348,15 +440,13 @@ class ActiveLearningSystemRL:
 
             self.save_results()
 
-        mean_iou = eval_metrics["mean_iou"]
-        dice = eval_metrics["dice"]
-        f1 = eval_metrics["f1"]
-        score = dice + f1 + mean_iou
+        score = self.get_primary_metric(self.config.task, eval_metrics)
         
         if self.prev_score is None:
             reward = 0.0
         else:
-            reward = (score - self.prev_score) / (abs(self.prev_score) + 1e-8)
+            reward = score - self.prev_score
+            reward = np.clip(reward, -0.1, 0.1)
         self.prev_score = score 
         # Cost penalty
         if getattr(self.config, "dynamic_query_size", False):
@@ -393,7 +483,11 @@ class ActiveLearningSystemRL:
         self.logger.info("Starting RL Active Learning")
 
         # Warm-up
-        labeled_dataset = Subset(self.dataset_train, self.labeled_indices)
+        labeled_dataset = MixedDataset(
+            self.dataset_train,
+            self.dataset_pool,
+            self.labeled_indices
+        )
         for ep in range(self.config.initial_training_epoch):
             epoch_start = time.time()
             train_metrics = self.main_model.train_epoch(labeled_dataset, ep, self.config.initial_training_epoch)
@@ -431,6 +525,7 @@ class ActiveLearningSystemRL:
         self.logger.info(f"=== Reward {reward} ===")
 
     def _log_metrics(self, epoch, train_metrics, eval_metrics, epoch_time):
+
         global_epoch = epoch + self.cycle * self.config.epochs_per_cycle
 
         self.history.setdefault("epoch", []).append(epoch)
@@ -438,33 +533,79 @@ class ActiveLearningSystemRL:
         self.history.setdefault("cycle", []).append(self.cycle)
         self.history.setdefault("epoch_time", []).append(epoch_time)
         self.history.setdefault("train_loss", []).append(train_metrics["train_loss"])
-        self.history.setdefault("val_dice", []).append(eval_metrics["dice"])
-        self.history.setdefault("val_F1", []).append(eval_metrics["f1"])
-        self.history.setdefault("val_mean_iou", []).append(eval_metrics["mean_iou"])
         self.history.setdefault("labeled_count", []).append(len(self.labeled_indices))
 
-        self.logger.info(
-            f"Epoch {epoch+1} | "
-            f"Loss: {train_metrics['train_loss']:.4f} | "
-            f"F1: {eval_metrics.get('f1', 0):.4f} | "
-            f"Dice: {eval_metrics['dice']:.4f} | "
-            f"Mean IoU: {eval_metrics['mean_iou']:.4f} | "
-            f"Labeled: {len(self.labeled_indices)}"
-        )
 
-        if self.config.use_wandb:
-            log_to_wandb(
-                {
-                    "epoch": epoch + 1,
-                    "global_epoch": global_epoch,
-                    "cycle": self.cycle,
-                    "train_loss": train_metrics["train_loss"],
-                    "val_dice": eval_metrics["dice"],
-                    "val_iou": eval_metrics["mean_iou"],
-                    "labeled_count": len(self.labeled_indices),
-                },
-                step=global_epoch,
+        # ==========================================
+        # Semantic segmentation
+        # ==========================================
+        if self.config.task == "segmentation":
+
+            f1 = eval_metrics.get("f1", 0)
+            dice = eval_metrics.get("dice", 0)
+            miou = eval_metrics.get("mean_iou", 0)
+
+            self.history.setdefault("val_F1", []).append(f1)
+            self.history.setdefault("val_dice", []).append(dice)
+            self.history.setdefault("val_mean_iou", []).append(miou)
+
+            self.logger.info(
+                f"Epoch {epoch+1} | "
+                f"Loss: {train_metrics['train_loss']:.4f} | "
+                f"F1: {f1:.4f} | "
+                f"Dice: {dice:.4f} | "
+                f"Mean IoU: {miou:.4f} | "
+                f"Labeled: {len(self.labeled_indices)}"
             )
+
+            if self.config.use_wandb:
+                log_to_wandb(
+                    {
+                        "epoch": epoch + 1,
+                        "global_epoch": global_epoch,
+                        "cycle": self.cycle,
+                        "train_loss": train_metrics["train_loss"],
+                        "val_F1": f1,
+                        "val_dice": dice,
+                        "val_mean_iou": miou,
+                        "labeled_count": len(self.labeled_indices),
+                    },
+                    step=global_epoch,
+                )
+
+
+        # ==========================================
+        # Instance segmentation
+        # ==========================================
+        elif self.config.task in ["instance_segmentation", "detection"]:
+
+            mask_ap = eval_metrics.get("mask_AP", 0)
+            bbox_ap = eval_metrics.get("bbox_AP", 0)
+
+            self.history.setdefault("val_mask_AP", []).append(mask_ap)
+            self.history.setdefault("val_bbox_AP", []).append(bbox_ap)
+
+            self.logger.info(
+                f"Epoch {epoch+1} | "
+                f"Loss: {train_metrics['train_loss']:.4f} | "
+                f"Mask AP: {mask_ap:.4f} | "
+                f"BBox AP: {bbox_ap:.4f} | "
+                f"Labeled: {len(self.labeled_indices)}"
+            )
+
+            if self.config.use_wandb:
+                log_to_wandb(
+                    {
+                        "epoch": epoch + 1,
+                        "global_epoch": global_epoch,
+                        "cycle": self.cycle,
+                        "train_loss": train_metrics["train_loss"],
+                        "val_mask_AP": mask_ap,
+                        "val_bbox_AP": bbox_ap,
+                        "labeled_count": len(self.labeled_indices),
+                    },
+                    step=global_epoch,
+                )
 
     def save_results(self):
         results = {
