@@ -10,7 +10,7 @@ import json
 from torch.utils.data import DataLoader, Subset
 
 from .models import UNetModel, PolicyNet
-from .utils import setup_logging, set_seed
+from .utils import setup_logging, set_seed, universal_collate, _ensure_rgb
 from .data_modules.factory import load_dataset
 from .cold_start_strategies import ColdStartStrategies
 from .models import build_model
@@ -291,15 +291,21 @@ class ActiveLearningSystemRL:
             batch_size=self.config.batch_size,
             shuffle=False,
             num_workers=self.config.num_workers,
+            collate_fn=universal_collate
         )
 
         states = []
-        for images, _ in loader:
-            images = images.to(self.device)
-            states.append(self._compute_state(images))
 
-        states = torch.cat(states, dim=0).to(self.device)
-        states = states.detach()
+        with torch.no_grad():
+
+            for images, _ in loader:
+
+                images = [_ensure_rgb(img) for img in images]
+                images = torch.stack(images).to(self.device)
+
+                states.append(self._compute_state(images))
+
+        states = torch.cat(states, dim=0).detach()
 
         # ==========================================================
         # Candidate Filtering
