@@ -52,7 +52,7 @@ def build_model(model_name: str, num_classes: int, device, config) -> Any:
     if model_name == "unet":
         return UNetModel(num_classes, device, config)
 
-    elif model_name == "deeplab":
+    elif model_name == "Deeplabv3":
         return DeepLabV3Model(num_classes, device, config)
 
     elif model_name == "segformer":
