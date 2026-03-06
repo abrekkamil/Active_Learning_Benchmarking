@@ -29,7 +29,10 @@ class ActiveLearningConfig:
     skip_cold_start: bool = False   # 👈 NEW
     cold_start_strategy: str = "random"
     query_strategy: str = "uncertainty"
-
+    # =====================
+    # Task / Model
+    # =====================
+    pool: bool = False
     # =====================
     # Task / Model
     # =====================

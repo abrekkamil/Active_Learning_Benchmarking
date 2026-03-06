@@ -40,6 +40,8 @@ class ActiveLearningSystem:
         self.num_classes = config.num_classes
         self.dataset_train = load_dataset(config, split="train")
         self.dataset_val   = load_dataset(config, split="val")
+        if self.config.pool:
+            self.dataset_pool  = load_dataset(config, split="pool")
         
         # Initialize strategies
         self.cold_start = ColdStartStrategies(self.dataset_train, config)

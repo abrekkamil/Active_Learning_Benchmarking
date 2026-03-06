@@ -6,7 +6,8 @@ from typing import List, Dict
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
-from torchvision.models.detection import maskrcnn_resnet50_fpn
+from torchvision.models.detection import MaskRCNN
+from torchvision.models.detection.backbone_utils import resnet_fpn_backbone
 from torchvision.models.detection.mask_rcnn import MaskRCNNPredictor
 from torchvision.models.detection.faster_rcnn import FastRCNNPredictor
 
@@ -37,9 +38,15 @@ class MaskRCNNModel(BaseModel):
         # --------------------------------------------------
         # Model
         # --------------------------------------------------
-
-        model = maskrcnn_resnet50_fpn(weights=None)
-
+        backbone = resnet_fpn_backbone(
+            backbone_name="resnext50_32x4d",   # ← change backbone here
+            weights=None,
+            trainable_layers=3
+        )
+        model = MaskRCNN(
+            backbone,
+            num_classes=num_classes
+        )
         # Replace box predictor
         in_features = model.roi_heads.box_predictor.cls_score.in_features
         model.roi_heads.box_predictor = FastRCNNPredictor(
