@@ -44,7 +44,7 @@ class ActiveLearningSystem:
     
     def __init__(self, config, skip_cold_start=False):
         """Initialize active learning system."""
-        selfsystem_start_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        self.system_start_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
         self.config = config
         self.device = torch.device(
@@ -405,7 +405,7 @@ class ActiveLearningSystem:
         # --- time for filename (HHMM) ---
         time_stamp = datetime.datetime.now().strftime("%H%M")
 
-        results_path = os.path.join(
+        self.results_path = os.path.join(
             results_dir,
             f"{self.config.experiment_name}_"
             f"{self.config.dataset_type}_"

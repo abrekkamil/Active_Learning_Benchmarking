@@ -241,31 +241,32 @@ class MaskRCNNModel(BaseModel):
     # Active Learning uncertainty
     # --------------------------------------------------
 
-    def get_uncertainty(self, images: List[torch.Tensor]) -> np.ndarray:
+    def get_uncertainty(self, images):
 
         self.model.eval()
 
-        preds = self.predict(images)
+        imgs = [_ensure_rgb(img).to(self.device) for img in images]
 
-        scores = []
+        uncertainties = []
 
-        for p in preds:
+        with torch.no_grad():
 
-            if "scores" not in p or len(p["scores"]) == 0:
+            outputs = self.model(imgs)
 
-                scores.append(1.0)
+            for out in outputs:
 
-            else:
+                scores = out["scores"]
 
-                s = p["scores"].float()
+                if len(scores) == 0:
+                    uncertainty = 1.0
+                else:
+                    p = scores.clamp(min=1e-6, max=1-1e-6)
+                    entropy = -(p * torch.log(p)).mean().item()
+                    uncertainty = entropy
 
-                k = min(len(s), 5)
+                uncertainties.append(uncertainty)
 
-                topk_mean = torch.topk(s, k).values.mean().item()
-
-                scores.append(float(np.clip(1.0 - topk_mean, 0.0, 1.0)))
-
-        return np.array(scores, dtype=np.float32)
+        return torch.tensor(uncertainties)
 
     # --------------------------------------------------
     # Checkpointing
