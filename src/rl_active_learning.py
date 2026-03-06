@@ -504,8 +504,7 @@ class ActiveLearningSystemRL:
             self.save_results()
         self.cycle += 1
 
-        self.prev_f1 = self.main_model.evaluate(self.dataset_val)["f1"]
-
+        self.prev_score = self.get_primary_metric(self.config.task, eval_metrics)
         for cycle in range(self.config.al_cycles):
             self.logger.info(f"\n=== Reinforcement AL Cycle {cycle + 1}/{self.config.al_cycles} ===")
             self.run_cycle()
