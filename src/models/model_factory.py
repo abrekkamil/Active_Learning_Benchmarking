@@ -52,7 +52,7 @@ def build_model(model_name: str, num_classes: int, device, config) -> Any:
     if model_name == "unet":
         return UNetModel(num_classes, device, config)
 
-    elif model_name == "Deeplabv3":
+    elif model_name == "deeplabv3":
         return DeepLabV3Model(num_classes, device, config)
 
     elif model_name == "segformer":
@@ -82,5 +82,5 @@ def build_model(model_name: str, num_classes: int, device, config) -> Any:
     else:
         raise ValueError(
             f"Unknown model '{model_name}'. "
-            "Available models: unet, deeplab, segformer, maskrcnn, yolo"
+            "Available models: unet, deeplabv3, segformer, maskrcnn, yolo"
         )
