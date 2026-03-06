@@ -15,23 +15,23 @@ class QueryStrategies:
         self.config = config
     
     def calculate_uncertainty(self, model, dataset, indices, device):
-        """
-        Calculate uncertainty scores for a list of dataset indices.
-
-        This function is MODEL-AGNOSTIC.
-        It delegates uncertainty computation to the model wrapper.
-        """
 
         model.eval()
 
-        images = []
-        for idx in indices:
-            sample = dataset[idx]
-            image = sample[0] if isinstance(sample, (tuple, list)) else sample
-            images.append(image.to(device))
+        uncertainties = []
 
-        # 🔑 delegate to model
-        uncertainties = model.get_uncertainty(images)
+        for i in range(0, len(indices), self.config.batch_size):
+
+            batch_indices = indices[i:i+self.config.batch_size]
+
+            images = []
+            for idx in batch_indices:
+                sample = dataset[idx]
+                image = sample[0] if isinstance(sample, (tuple, list)) else sample
+                images.append(image.to(device))
+
+            u = model.get_uncertainty(images)
+            uncertainties.extend(u)
 
         return uncertainties
 
