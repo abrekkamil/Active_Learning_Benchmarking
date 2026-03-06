@@ -183,6 +183,22 @@ class ActiveLearningSystem:
             f"{len(self.labeled_indices)} labeled, "
             f"{len(self.unlabeled_indices)} unlabeled"
         )
+
+    def _get_sample_name(self, source, idx):
+
+        dataset = self.dataset_train if source == "train" else self.dataset_pool
+
+        # COCO-style datasets
+        if hasattr(dataset, "coco"):
+            img_id = dataset.ids[idx]
+            return dataset.coco.imgs[img_id]["file_name"]
+
+        # generic fallback
+        if hasattr(dataset, "images"):
+            return dataset.images[idx]
+
+        return f"{source}_{idx}"
+    
     def train(self, epochs: Optional[int] = None):
         if epochs is None:
             epochs = self.config.epochs_per_cycle
@@ -265,7 +281,22 @@ class ActiveLearningSystem:
         )
         self.logger.info(f"GPU memory allocated: {torch.cuda.memory_allocated()/1e9:.2f} GB after selection")
         selected_global_indices = [self.unlabeled_indices[i] for i in selected_indices]
+        selected_samples_info = []
 
+        for i in selected_indices:
+
+            source, idx = self.unlabeled_indices[i]
+
+            name = self._get_sample_name(source, idx)
+
+            score = float(uncertainties[i])
+
+            selected_samples_info.append({
+                "source": source,
+                "index": idx,
+                "name": name,
+                "uncertainty": score
+            })
         self.labeled_indices.extend(selected_global_indices)
         self.unlabeled_indices = [
             idx for i, idx in enumerate(self.unlabeled_indices)
@@ -281,8 +312,13 @@ class ActiveLearningSystem:
             f"Now {len(self.labeled_indices)} labeled, "
             f"{len(self.unlabeled_indices)} unlabeled"
         )
+        self.logger.info("Selected sample names:")
+
+        for s in selected_samples_info[:10]:  # avoid huge logs
+            self.logger.info(f"{s['source']} | {s['name']}")
         self.history.setdefault("selected_train_count", []).append(n_train)
         self.history.setdefault("selected_pool_count", []).append(n_pool)
+        self.history.setdefault("selected_samples", []).append(selected_samples_info)
         return selected_global_indices
     
     def run(self):
