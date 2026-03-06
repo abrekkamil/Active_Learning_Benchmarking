@@ -23,7 +23,3 @@ def _ensure_rgb(img: torch.Tensor) -> torch.Tensor:
 def _batched(imgs: List[torch.Tensor]) -> torch.Tensor:
     imgs = [_ensure_chw(i) for i in imgs]
     return torch.stack(imgs, dim=0)
-
-def universal_collate(batch):
-    images, targets = zip(*batch)
-    return list(images), list(targets)

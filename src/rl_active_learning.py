@@ -10,10 +10,11 @@ import json
 from torch.utils.data import DataLoader, Subset
 
 from .models import UNetModel, PolicyNet
-from .utils import setup_logging, set_seed, universal_collate, _ensure_rgb
+from .utils import setup_logging, set_seed, universal_collate
 from .data_modules.factory import load_dataset
 from .cold_start_strategies import ColdStartStrategies
 from .models import build_model
+from .models.utils import _ensure_rgb
 
 import wandb
 

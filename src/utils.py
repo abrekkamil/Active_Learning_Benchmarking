@@ -16,6 +16,11 @@ import matplotlib.pyplot as plt
 from collections import defaultdict
 import wandb
 
+def universal_collate(batch):
+    images, targets = zip(*batch)
+    return list(images), list(targets)
+
+
 def set_seed(seed: int = 42, deterministic: bool = False):
     """
     Set random seed for reproducibility across Python, NumPy, and PyTorch.
