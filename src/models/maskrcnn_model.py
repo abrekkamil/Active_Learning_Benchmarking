@@ -17,6 +17,35 @@ from .utils import _ensure_rgb
 from pycocotools import mask as maskUtils
 from pycocotools.cocoeval import COCOeval
 
+
+class MaskRCNNWithBottleneck(nn.Module):
+    """
+    Wrapper for torchvision Mask R-CNN to expose get_bottleneck_features().
+    """
+
+    def __init__(self, model: nn.Module):
+        super().__init__()
+        self.model = model
+
+    def forward(self, x, targets=None):
+        return self.model(x, targets)
+
+    def get_bottleneck_features(self, x: torch.Tensor):
+        """
+        Extract backbone FPN features and global average pool them.
+
+        Returns:
+            tensor [B, C]
+        """
+
+        feats = self.model.backbone(x)
+
+        # choose first FPN level
+        f = list(feats.values())[0]   # [B,256,H,W]
+
+        return f.mean(dim=[2, 3])     # [B,256]
+
+
 class MaskRCNNModel(BaseModel):
     """
     Torchvision Mask R-CNN wrapper for instance segmentation.
@@ -63,7 +92,7 @@ class MaskRCNNModel(BaseModel):
             num_classes,
         )
 
-        self.model = model.to(device)
+        self.model = MaskRCNNWithBottleneck(model).to(device)
 
         self.optimizer = torch.optim.SGD(
             self.model.parameters(),
