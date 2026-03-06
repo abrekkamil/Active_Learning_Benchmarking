@@ -14,6 +14,24 @@ from .utils import setup_logging, save_checkpoint, load_checkpoint
 from .data_modules.factory import load_dataset
 from .models import build_model
 
+class MixedDataset(torch.utils.data.Dataset):
+    def __init__(self, dataset_train, dataset_pool, samples):
+        self.dataset_train = dataset_train
+        self.dataset_pool = dataset_pool
+        self.samples = samples  # list of ("train"/"pool", idx)
+
+    def __len__(self):
+        return len(self.samples)
+
+    def __getitem__(self, i):
+        source, idx = self.samples[i]
+        if source == "train":
+            return self.dataset_train[idx]
+        elif source == "pool":
+            return self.dataset_pool[idx]
+        else:
+            raise ValueError(f"Unknown source: {source}")
+
 class ActiveLearningSystem:
     """
     Main active learning system combining cold start and query strategies.
@@ -40,6 +58,7 @@ class ActiveLearningSystem:
         self.num_classes = config.num_classes
         self.dataset_train = load_dataset(config, split="train")
         self.dataset_val   = load_dataset(config, split="val")
+        self.dataset_pool = None
         if self.config.pool:
             self.dataset_pool  = load_dataset(config, split="pool")
         
@@ -83,7 +102,9 @@ class ActiveLearningSystem:
             print(f"  Initial labeled: {len(self.labeled_indices)} samples")
         else:
             print(f"  Skipped cold start. Full dataset will be used for training.")
-            self.labeled_indices  = list(range(len(self.dataset_train)))
+            self.labeled_indices = [("train", i) for i in range(len(self.dataset_train))]
+            if self.config.pool:
+                self.labeled_indices += [("pool", i) for i in range(len(self.dataset_pool))]
             self.unlabeled_indices = []
     
     def _load_datasets(self):
@@ -106,40 +127,55 @@ class ActiveLearningSystem:
         self.num_classes = max(self.dataset_train.classes) + 1
     
     def _init_pools(self):
-        """Initialize labeled and unlabeled pools using cold start strategy."""
-        all_indices = list(range(len(self.dataset_train)))
-        
-        # Determine number of initial samples
+        train_indices = list(range(len(self.dataset_train)))
+        pool_indices = list(range(len(self.dataset_pool))) if self.config.pool else []
+
+        all_samples = [("train", i) for i in train_indices] + \
+                    [("pool", i) for i in pool_indices]
+
+        # initial labeled only from original train split
         if 0 <= self.config.initial_labeled <= 1:
-            n_labeled = int(self.config.initial_labeled * len(all_indices))
+            n_labeled = int(self.config.initial_labeled * len(train_indices))
         else:
-            n_labeled = min(int(self.config.initial_labeled), len(all_indices))
-        
-        # Apply cold start strategy
-        self.labeled_indices = self.cold_start.apply(
+            n_labeled = min(int(self.config.initial_labeled), len(train_indices))
+
+        labeled_train = self.cold_start.apply(
             strategy_name=self.config.cold_start_strategy,
             n_samples=n_labeled,
-            all_indices=all_indices
+            all_indices=train_indices
         )
-        
-        self.unlabeled_indices = [
-            i for i in all_indices if i not in self.labeled_indices
-        ]
-        
+
+        self.labeled_indices = [("train", i) for i in labeled_train]
+        self.unlabeled_indices = [s for s in all_samples if s not in self.labeled_indices]
+
         self.logger.info(
             f"Initialized with {len(self.labeled_indices)} labeled "
             f"and {len(self.unlabeled_indices)} unlabeled samples"
         )
-    def set_labeled_indices(self, labeled_indices: List[int]):
-        """
-        Manually set the initial labeled pool (override cold start).
-        Useful for cold start experiments and ablations.
-        """
-        all_indices = list(range(len(self.dataset_train)))
 
+    def get_labeled_dataset(self):
+        return MixedDataset(
+            self.dataset_train,
+            self.dataset_pool,
+            self.labeled_indices
+        )
+    
+    def get_unlabeled_dataset(self):
+        return MixedDataset(
+            self.dataset_train,
+            self.dataset_pool,
+            self.unlabeled_indices
+        )
+    
+    def set_labeled_indices(self, labeled_indices):
         self.labeled_indices = list(labeled_indices)
+
+        all_samples = [("train", i) for i in range(len(self.dataset_train))]
+        if self.config.pool:
+            all_samples += [("pool", i) for i in range(len(self.dataset_pool))]
+
         self.unlabeled_indices = [
-            i for i in all_indices if i not in self.labeled_indices
+            s for s in all_samples if s not in self.labeled_indices
         ]
 
         self.logger.info(
@@ -151,7 +187,7 @@ class ActiveLearningSystem:
         if epochs is None:
             epochs = self.config.epochs_per_cycle
 
-        labeled_dataset = Subset(self.dataset_train, self.labeled_indices)
+        labeled_dataset = self.get_labeled_dataset()
 
         print(f"\nTraining cycle {self.cycle} with {len(self.labeled_indices)} samples")
 
@@ -199,51 +235,53 @@ class ActiveLearningSystem:
         return cycle_metrics
     
     def query(self, query_size: Optional[int] = None):
-        """Query new samples using active learning strategy."""
         if query_size is None:
             if self.config.query_size <= 1:
-                query_size = int(self.config.query_size * len(self.dataset_train))
+                query_size = int(self.config.query_size * len(self.unlabeled_indices))
             else:
                 query_size = self.config.query_size
-        
+
         if len(self.unlabeled_indices) == 0:
             self.logger.warning("No unlabeled samples left!")
             return []
-        
-        # Get uncertainty scores
+
+        unlabeled_dataset = self.get_unlabeled_dataset()
+        local_indices = list(range(len(unlabeled_dataset)))
+
         uncertainties = self.query_strategy.calculate_uncertainty(
             model=self.model,
-            dataset=self.dataset_train,
-            indices=self.unlabeled_indices,
+            dataset=unlabeled_dataset,
+            indices=local_indices,
             device=self.device
         )
-        
-        # Select samples
+
         selected_indices = self.query_strategy.select_samples(
             strategy_name=self.config.query_strategy,
             uncertainties=uncertainties,
-            dataset=self.dataset_train,
-            indices=self.unlabeled_indices,
+            dataset=unlabeled_dataset,
+            indices=local_indices,
             query_size=query_size
         )
-        
-        # Update pools
-        selected_global_indices = [
-            self.unlabeled_indices[i] for i in selected_indices
-        ]
-        
+
+        selected_global_indices = [self.unlabeled_indices[i] for i in selected_indices]
+
         self.labeled_indices.extend(selected_global_indices)
         self.unlabeled_indices = [
             idx for i, idx in enumerate(self.unlabeled_indices)
             if i not in selected_indices
         ]
-        
+
+        n_train = sum(1 for s, _ in selected_global_indices if s == "train")
+        n_pool = sum(1 for s, _ in selected_global_indices if s == "pool")
+
         self.logger.info(
-            f"Selected {len(selected_global_indices)} new samples. "
+            f"Selected {len(selected_global_indices)} new samples "
+            f"({n_train} from train, {n_pool} from pool). "
             f"Now {len(self.labeled_indices)} labeled, "
             f"{len(self.unlabeled_indices)} unlabeled"
         )
-        
+        self.history.setdefault("selected_train_count", []).append(n_train)
+        self.history.setdefault("selected_pool_count", []).append(n_pool)
         return selected_global_indices
     
     def run(self):
