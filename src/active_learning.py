@@ -235,6 +235,7 @@ class ActiveLearningSystem:
         return cycle_metrics
     
     def query(self, query_size: Optional[int] = None):
+        print(f"GPU memory allocated: {torch.cuda.memory_allocated()/1e9:.2f} GB before querying")
         if query_size is None:
             if self.config.query_size <= 1:
                 query_size = int(self.config.query_size * len(self.unlabeled_indices))
@@ -254,7 +255,7 @@ class ActiveLearningSystem:
             indices=local_indices,
             device=self.device
         )
-
+        print(f"GPU memory allocated: {torch.cuda.memory_allocated()/1e9:.2f} GB after uncertainty calculation")
         selected_indices = self.query_strategy.select_samples(
             strategy_name=self.config.query_strategy,
             uncertainties=uncertainties,
@@ -262,7 +263,7 @@ class ActiveLearningSystem:
             indices=local_indices,
             query_size=query_size
         )
-
+        print(f"GPU memory allocated: {torch.cuda.memory_allocated()/1e9:.2f} GB after selection")
         selected_global_indices = [self.unlabeled_indices[i] for i in selected_indices]
 
         self.labeled_indices.extend(selected_global_indices)
