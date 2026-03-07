@@ -44,7 +44,7 @@ class ActiveLearningSystem:
     
     def __init__(self, config, skip_cold_start=False):
         """Initialize active learning system."""
-        self.system_start_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        self.system_start_time = datetime.datetime.now()
 
         self.config = config
         self.device = torch.device(
@@ -324,7 +324,7 @@ class ActiveLearningSystem:
     def run(self):
         """Run complete active learning process."""
         self.logger.info("Starting active learning process...")
-        run_start_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        run_start_time = datetime.datetime.now()
         all_metrics = []
         
         # Initial training
@@ -343,10 +343,10 @@ class ActiveLearningSystem:
             all_metrics.append(cycle_metrics)
         
         self.logger.info("Active learning completed!")
-        run_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S") - run_start_time
+        run_time = str(datetime.datetime.now() - run_start_time)
         self.logger.info(f"RL Active Learning completed in {run_time}")
         self.history["run_time"] = run_time
-        system_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S") - self.system_start_time
+        system_time = str(datetime.datetime.now() - self.system_start_time)
         self.logger.info(f"Total system time: {system_time}")
         self.history["system_time"] = system_time
         self.save_results()
