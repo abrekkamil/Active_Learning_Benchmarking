@@ -48,7 +48,7 @@ class ActiveLearningSystemRL:
     """
 
     def __init__(self, config,  skip_cold_start: bool = False):
-        self.system_start_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        self.system_start_time = datetime.datetime.now()
         self.config = config
         set_seed(config.seed)
         self.cycle = 0
@@ -245,7 +245,7 @@ class ActiveLearningSystemRL:
 
         with torch.no_grad():
 
-            feats = self.oracle_model.model.get_bottleneck_features(images)
+            feats = self.oracle_model.model.get_bottleneck_features(images).detach()
 
             outputs = self.oracle_model.model(images)
 
@@ -267,8 +267,9 @@ class ActiveLearningSystemRL:
                         confidence_list.append(torch.tensor(0.0, device=self.device))
                         margin_list.append(torch.tensor(0.0, device=self.device))
                         continue
-
-                    probs = scores / scores.sum()
+                    
+                    denom = scores.sum() + 1e-8
+                    probs = scores / denom
 
                     entropy = -(probs * torch.log(probs + 1e-8)).sum()
 
@@ -361,7 +362,8 @@ class ActiveLearningSystemRL:
         entropy_scores = states[:, -3]
 
         candidate_ratio = getattr(self.config, "candidate_ratio", 0.4)
-        top_k = max(1, int(candidate_ratio * len(entropy_scores)))
+        top_k = int(candidate_ratio * len(entropy_scores))
+        top_k = max(1, min(top_k, len(entropy_scores)))
 
         _, candidate_idx = torch.topk(entropy_scores, top_k)
 
@@ -469,8 +471,9 @@ class ActiveLearningSystemRL:
             self.cycle += 1
             return
         self.labeled_indices.extend(new_indices)
+        new_set = set(new_indices)
         self.unlabeled_indices = [
-            i for i in self.unlabeled_indices if i not in new_indices
+            s for s in self.unlabeled_indices if s not in new_set
         ]
 
         # TrainSubset
@@ -500,7 +503,7 @@ class ActiveLearningSystemRL:
             reward = 0.0
         else:
             reward = score - self.prev_score
-            reward = np.clip(reward, -0.1, 0.1)
+            reward = float(np.clip(reward, -0.1, 0.1))
         self.prev_score = score 
         # Cost penalty
         if getattr(self.config, "dynamic_query_size", False):
@@ -533,7 +536,7 @@ class ActiveLearningSystemRL:
     # Full run
     # ==========================================================
     def run(self):
-        run_start_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        run_start_time = datetime.datetime.now()
         self.logger.info("Starting RL Active Learning")
 
         # Warm-up
@@ -563,10 +566,10 @@ class ActiveLearningSystemRL:
             self.logger.info(f"\n=== Reinforcement AL Cycle {cycle + 1}/{self.config.al_cycles} ===")
             self.run_cycle()
 
-        run_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S") - run_start_time
+        run_time = str(datetime.datetime.now() - run_start_time)
         self.logger.info(f"RL Active Learning completed in {run_time}")
         self.history["run_time"] = run_time
-        system_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S") - self.system_start_time
+        system_time = str(datetime.datetime.now() - self.system_start_time)
         self.logger.info(f"Total system time: {system_time}")
         self.history["system_time"] = system_time
         self.save_results()
