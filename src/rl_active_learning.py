@@ -398,8 +398,12 @@ class ActiveLearningSystemRL:
 
         else:
 
-            budget = self.config.query_size
-            budget = min(budget, len(candidate_pool))
+            if self.config.query_size <= 1:
+                budget = int(self.config.query_size * len(candidate_pool))
+            else:
+                budget = int(self.config.query_size)
+
+            budget = max(1, min(budget, len(candidate_pool)))
 
             log_prob_budget = torch.tensor(0.0, device=self.device)
             entropy_budget = torch.tensor(0.0, device=self.device)
@@ -407,6 +411,7 @@ class ActiveLearningSystemRL:
         # ==========================================================
         # Image Sampling
         # ==========================================================
+        budget = int(budget)
         image_probs = F.softmax(
             image_logits.squeeze() / self.policy_temp,
             dim=0
