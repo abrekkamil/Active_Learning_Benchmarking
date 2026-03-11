@@ -361,7 +361,7 @@ class ActiveLearningSystemRL:
         # ==========================================================
         entropy_scores = states[:, -3]
 
-        candidate_ratio = getattr(self.config, "candidate_ratio", 0.4)
+        candidate_ratio = getattr(self.config, "candidate_ratio", 0.2)
         top_k = int(candidate_ratio * len(entropy_scores))
         top_k = max(1, min(top_k, len(entropy_scores)))
 
@@ -385,7 +385,7 @@ class ActiveLearningSystemRL:
         if getattr(self.config, "dynamic_query_size", False):
 
             budget_ratio = torch.sigmoid(budget_logits)
-            budget_ratio = torch.clamp(budget_ratio, 0.05, 0.5)
+            budget_ratio = torch.clamp(budget_ratio, 0.01, 0.1)
 
             budget = int(budget_ratio.item() * len(candidate_pool))
             budget = max(1, budget)
@@ -512,7 +512,7 @@ class ActiveLearningSystemRL:
         self.prev_score = score 
         # Cost penalty
         if getattr(self.config, "dynamic_query_size", False):
-            reward = reward - self.config.cost_lambda * budget
+            reward = reward - self.config.cost_lambda * (budget / len(self.unlabeled_indices))
         # Policy update ONLY if a query actually happened
         if log_prob_sum is not None:
             advantage = reward - self.reward_baseline
