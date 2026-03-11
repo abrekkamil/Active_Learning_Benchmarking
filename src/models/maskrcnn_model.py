@@ -6,6 +6,7 @@ import torch.nn as nn
 from typing import List, Dict
 from torch.utils.data import DataLoader
 from tqdm import tqdm
+from torchvision.models import ResNeXt101_64X4D_Weights
 
 from torchvision.models.detection import MaskRCNN
 from torchvision.models.detection.backbone_utils import resnet_fpn_backbone
@@ -69,8 +70,8 @@ class MaskRCNNModel(BaseModel):
         # Model
         # --------------------------------------------------
         backbone = resnet_fpn_backbone(
-            backbone_name="resnext50_32x4d",   # ← change backbone here
-            weights=None,
+            backbone_name="resnext101_64x4d",
+            weights=ResNeXt101_64X4D_Weights.DEFAULT,
             trainable_layers=3
         )
         model = MaskRCNN(

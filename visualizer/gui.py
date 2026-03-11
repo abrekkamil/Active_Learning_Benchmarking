@@ -138,6 +138,8 @@ class ExperimentGUI(QMainWindow):
     # -----------------------------------------------------
     def load_settings(self):
 
+        self.saved_full_results = {}
+
         if SETTINGS_FILE.exists():
 
             with open(SETTINGS_FILE) as f:
@@ -148,14 +150,42 @@ class ExperimentGUI(QMainWindow):
             if size:
                 self.dataset_size_box.setText(str(size))
 
+            self.saved_full_results = settings.get("full_results", {})
+
     def save_settings(self):
 
-        settings = {
-            "dataset_size": self.dataset_size_box.text()
-        }
+        settings = {}
+
+        if SETTINGS_FILE.exists():
+            with open(SETTINGS_FILE) as f:
+                settings = json.load(f)
+
+        settings["dataset_size"] = self.dataset_size_box.text()
+
+        if self.df is not None:
+
+            dataset = self.dataset_box.currentText()
+
+            full_runs = self.df[self.df["run_type"] == "FULL"]
+
+            full_dict = {}
+
+            for _, r in full_runs.iterrows():
+                model = r["model_name"]
+                if model not in full_dict:
+                    full_dict[model] = {}
+                full_dict[model]["f1"] = r["f1_best"]
+                full_dict[model]["dice"] = r["dice_best"]
+                full_dict[model]["iou"] = r["iou_best"]
+
+            if "full_results" not in settings:
+                settings["full_results"] = {}
+
+            if full_dict:
+                settings["full_results"][dataset] = full_dict
 
         with open(SETTINGS_FILE, "w") as f:
-            json.dump(settings, f)
+            json.dump(settings, f, indent=4)
 
 
 
@@ -312,6 +342,7 @@ class ExperimentGUI(QMainWindow):
                 self.ax,
                 df,
                 metric,
+                saved_full_results=self.saved_full_results.get(dataset, None),
                 dataset=dataset,
                 dataset_size=dataset_size,
             )
@@ -322,6 +353,7 @@ class ExperimentGUI(QMainWindow):
                 self.ax,
                 df_best,
                 metric,
+                saved_full_results=self.saved_full_results.get(dataset, None),
                 dataset=dataset,
                 dataset_size=dataset_size,
             )
@@ -336,7 +368,7 @@ class ExperimentGUI(QMainWindow):
             )
 
         elif mode == "Strategy boxplot":
-            plot_strategy_boxplot(self.ax, df, metric)
+            plot_strategy_boxplot(self.ax, df, metric, saved_full_results=self.saved_full_results.get(dataset, None), dataset=dataset, dataset_size=dataset_size)
 
         elif mode == "Efficiency analysis":
             plot_efficiency(

@@ -2,7 +2,7 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import numpy as np
 
-def plot_curves(ax, df, metric, dataset=None,dataset_size=None):
+def plot_curves(ax, df, metric, saved_full_results=None, dataset=None, dataset_size=None):
 
     ax.clear()
 
@@ -22,8 +22,8 @@ def plot_curves(ax, df, metric, dataset=None,dataset_size=None):
     # ------------------------------------------------
 
     plotted = False
-    full_scores = get_full_performance(df, metric)
-
+    full_scores = get_full_performance(df, metric, saved_full=saved_full_results, dataset=dataset)
+    print("Full dataset performance:", full_scores)
     for _, row in df.iterrows():
         model = row["model_name"]
         full_value = full_scores.get(model, None)
@@ -118,7 +118,7 @@ def plot_strategy_mean(ax, df, metric, dataset_size=None):
 
     ax.figure.canvas.draw()
 
-def plot_strategy_boxplot(ax, df, metric, dataset_size=None):
+def plot_strategy_boxplot(ax, df, metric, saved_full_results=None, dataset=None, dataset_size=None):
 
     ax.clear()
 
@@ -171,7 +171,7 @@ def plot_strategy_boxplot(ax, df, metric, dataset_size=None):
     # Add FULL reference line
     # ---------------------------------
 
-    full_scores = get_full_performance(df, metric)
+    full_scores = get_full_performance(df, metric, saved_full_results, dataset)
 
     if len(full_scores) > 0:
 
@@ -219,7 +219,7 @@ def performance_at_percent(row, percent):
 
 
 
-def get_full_performance(df, metric):
+def get_full_performance(df, metric, saved_full=None, dataset=None):
 
     metric_col = f"{metric}_best"
 
@@ -232,6 +232,10 @@ def get_full_performance(df, metric):
         model = row["model_name"]
 
         full_scores[model] = row[metric_col]
+
+    if not full_scores and saved_full and dataset in saved_full:
+
+        full_scores = saved_full[dataset]
 
     return full_scores
 
