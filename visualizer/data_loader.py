@@ -5,7 +5,6 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-
 # ==========================================================
 # Config fields to extract
 # ==========================================================
@@ -64,7 +63,8 @@ def safe_get_history(payload):
 def infer_run_type(fname: str):
 
     n = fname.lower()
-
+    if "test" in n:
+        return "TEST"
     if "full_set_training" in n:
         return "FULL"
 
@@ -73,9 +73,10 @@ def infer_run_type(fname: str):
 
     if "reinforcement_active_learning" in n:
         return "RL_AL"
-
+    
     if "active_learning" in n:
         return "AL"
+
 
     return "OTHER"
 
@@ -104,7 +105,7 @@ def infer_strategy(fname: str):
 # Convert epoch logs → cycle logs
 # ==========================================================
 
-def compute_cycle_metrics(history, config):
+def compute_cycle_metrics(history, config, row):
 
     f1 = history.get("val_F1", [])
     dice = history.get("val_dice", [])
@@ -124,7 +125,8 @@ def compute_cycle_metrics(history, config):
 
     # initial training
     if initial_epochs > 0:
-
+        if row["run_type"] == "FULL":
+             initial_epochs = len(f1)
         F1_cycles.append(max(f1[:initial_epochs]))
         dice_cycles.append(max(dice[:initial_epochs]))
         iou_cycles.append(max(iou[:initial_epochs]))
@@ -200,7 +202,7 @@ def summarize_file(path: Path):
     # if row["dyamic_query_size"] is None:
     #     row["dynamic_query_size"] = False
     # compute cycle metrics
-    F1_cycles, dice_cycles, iou_cycles, labeled_cycles = compute_cycle_metrics(history, config)
+    F1_cycles, dice_cycles, iou_cycles, labeled_cycles = compute_cycle_metrics(history, config, row)
 
     row["F1_cycles"] = F1_cycles
     row["dice_cycles"] = dice_cycles
@@ -214,6 +216,10 @@ def summarize_file(path: Path):
         row["dice_best"] = max(dice_cycles)
     if len(iou_cycles) > 0:
         row["iou_best"] = max(iou_cycles)
+
+    row['f1_auc'] = np.trapz(F1_cycles, labeled_cycles) if len(F1_cycles) > 1 else None
+    row['dice_auc'] = np.trapz(dice_cycles, labeled_cycles) if len(dice_cycles) > 1 else None
+    row['iou_auc'] = np.trapz(iou_cycles, labeled_cycles) if len(iou_cycles) > 1 else None
 
     return row
 
@@ -250,7 +256,7 @@ def infer_dataset(fname):
 # Main loader
 # ==========================================================
 
-def load_results(results_dir, dataset=None):
+def load_results(results_dir, metric, dataset=None, dataset_size=None):
 
     results_dir = Path(results_dir)
 
@@ -286,7 +292,51 @@ def load_results(results_dir, dataset=None):
     runs_df = runs_df[runs_df["run_type"].isin(["FULL", "AL", "RL_AL", "RL_AL_improved"])].copy()
     
     runs_df = runs_df.reset_index(drop=True)
+    runs_df["labels_90"] = runs_df.apply(
+        lambda r: labels_needed_for_target(runs_df, r, metric, 0.90),
+        axis=1
+    )
 
+    runs_df["labels_95"] = runs_df.apply(
+        lambda r: labels_needed_for_target(runs_df, r, metric, 0.95),
+        axis=1
+    )
+    runs_df["labels_95_pct"] = runs_df["labels_95"] / dataset_size
+    runs_df["labels_100"] = runs_df.apply(
+        lambda r: labels_needed_for_target(runs_df, r, metric, 1.0),
+        axis=1
+    )
     print("\nRuns loaded:", len(runs_df))
 
     return runs_df
+
+def labels_needed_for_target(df, row, metric, target=0.95):
+
+    metric_col = f"{metric}_best"
+
+    # find FULL performance for this model
+    full_runs = df[df["run_type"] == "FULL"]
+
+    model = row["model_name"]
+
+    full_row = full_runs[full_runs["model_name"] == model]
+
+    if full_row.empty:
+        return None
+
+    full_perf = full_row.iloc[0][metric_col]
+
+    threshold = target * full_perf
+
+    labeled = row["labeled_curve"]
+    curve = row[f"{metric.upper()}_cycles"]  # F1_cycles, DICE_cycles etc
+
+    if not labeled or not curve:
+        return None
+
+    for l, v in zip(labeled, curve):
+
+        if v >= threshold:
+            return l
+
+    return None

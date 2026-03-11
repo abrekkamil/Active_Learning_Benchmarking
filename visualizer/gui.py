@@ -1,10 +1,16 @@
 from PyQt6.QtWidgets import *
+from PyQt6.QtCore import Qt
+
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg
 import matplotlib.pyplot as plt
 
 from data_loader import load_results
-from plotter import plot_curves, plot_strategy_mean, plot_strategy_boxplot
+from plotter import plot_curves, plot_strategy_mean, plot_strategy_boxplot, plot_efficiency
 import pandas as pd
+import json
+from pathlib import Path
+
+SETTINGS_FILE = Path("visualizer_settings.json")
 
 class ExperimentGUI(QMainWindow):
 
@@ -16,6 +22,7 @@ class ExperimentGUI(QMainWindow):
         self.resize(1400,800)
 
         self.df = None
+        splitter = QSplitter(Qt.Orientation.Vertical)
 
         main_layout = QVBoxLayout()
 
@@ -25,6 +32,7 @@ class ExperimentGUI(QMainWindow):
             "Best runs",
             "Strategy mean",
             "Strategy boxplot",
+            "Efficiency analysis",
         ])
 
         # -------------------
@@ -43,6 +51,11 @@ class ExperimentGUI(QMainWindow):
 
         top_bar.addWidget(QLabel("Dataset"))
         top_bar.addWidget(self.dataset_box)
+
+        self.dataset_size_box = QLineEdit()
+        self.dataset_size_box.setPlaceholderText("Full dataset size")
+        top_bar.addWidget(QLabel("Full dataset size"))
+        top_bar.addWidget(self.dataset_size_box)
 
         self.metric_box = QComboBox()
         self.metric_box.addItems(["f1","dice","iou"])
@@ -103,30 +116,57 @@ class ExperimentGUI(QMainWindow):
         self.fig, self.ax = plt.subplots()
         self.canvas = FigureCanvasQTAgg(self.fig)
 
-        main_layout.addWidget(self.canvas)
-
         # -------------------
         # Table
         # -------------------
 
         self.table = QTableWidget()
-        main_layout.addWidget(self.table)
+
+        splitter.addWidget(self.canvas)
+        splitter.addWidget(self.table)
+        splitter.setStretchFactor(0, 3)
+        splitter.setStretchFactor(1, 1)
+        main_layout.addWidget(splitter)
 
         container = QWidget()
         container.setLayout(main_layout)
 
         self.setCentralWidget(container)
 
+        self.load_settings()
+
     # -----------------------------------------------------
+    def load_settings(self):
+
+        if SETTINGS_FILE.exists():
+
+            with open(SETTINGS_FILE) as f:
+                settings = json.load(f)
+
+            size = settings.get("dataset_size")
+
+            if size:
+                self.dataset_size_box.setText(str(size))
+
+    def save_settings(self):
+
+        settings = {
+            "dataset_size": self.dataset_size_box.text()
+        }
+
+        with open(SETTINGS_FILE, "w") as f:
+            json.dump(settings, f)
+
+
 
     def load_directory(self):
-
+        
         folder = QFileDialog.getExistingDirectory(self, "Select results directory")
 
         if not folder:
             return
 
-        self.df = load_results(folder, dataset=self.dataset_box.currentText())
+        self.df = load_results(folder, self.metric_box.currentText(), dataset=self.dataset_box.currentText(), dataset_size=int(self.dataset_size_box.text()) if self.dataset_size_box.text().isdigit() else None)
 
         if self.df is None or len(self.df) == 0:
             QMessageBox.warning(self,"Warning","No experiment files found")
@@ -134,6 +174,7 @@ class ExperimentGUI(QMainWindow):
 
         self.populate_filters()
         self.populate_table(self.df)
+        self.update_plot()
 
     # -----------------------------------------------------
 
@@ -195,6 +236,16 @@ class ExperimentGUI(QMainWindow):
 
     def populate_table(self, df):
 
+        metric = self.metric_box.currentText().lower()
+
+        metric_map = {
+            "f1": "f1_best",
+            "dice": "dice_best",
+            "iou": "iou_best",
+        }
+
+        sort_col = metric_map.get(metric, "f1_best")
+
         display_cols = [
             "run_type",
             "label",
@@ -205,13 +256,25 @@ class ExperimentGUI(QMainWindow):
             "cold_start_strategy",
             "query_strategy",
             "f1_best",
-            "f1_final",
+            "dice_best",
+            "iou_best",
             "f1_auc",
+            "dice_auc",
+            "iou_auc",
+            "labels_90",
+            "labels_95",
+            "labels_100",
         ]
 
         cols = [c for c in display_cols if c in df.columns]
 
         table_df = df[cols]
+
+        # 🔹 sort by selected metric
+        if sort_col in table_df.columns:
+            table_df = table_df.sort_values(sort_col, ascending=False)
+
+        table_df = table_df.reset_index(drop=True)
 
         self.table.setRowCount(len(table_df))
         self.table.setColumnCount(len(cols))
@@ -225,32 +288,64 @@ class ExperimentGUI(QMainWindow):
     # -----------------------------------------------------
 
     def update_plot(self):
+        self.save_settings()
+
         mode = self.plot_mode.currentText()
         df = self.filter_df()
         metric = self.metric_box.currentText()
+        dataset = self.dataset_box.currentText()
+
+        size_text = self.dataset_size_box.text().strip()
+
+        if not size_text.isdigit():
+            QMessageBox.warning(
+                self,
+                "Missing dataset size",
+                "Please enter a valid full dataset size."
+            )
+            return
+
+        dataset_size = int(size_text)
+
         if mode == "Raw runs":
-            plot_curves(self.ax, df, metric)
+            plot_curves(
+                self.ax,
+                df,
+                metric,
+                dataset=dataset,
+                dataset_size=dataset_size,
+            )
 
         elif mode == "Best runs":
             df_best = select_best_runs(df)
-            plot_curves(self.ax, df_best, metric)
+            plot_curves(
+                self.ax,
+                df_best,
+                metric,
+                dataset=dataset,
+                dataset_size=dataset_size,
+            )
 
         elif mode == "Strategy mean":
-            plot_strategy_mean(self.ax, df, metric)
+            plot_strategy_mean(
+                self.ax,
+                df,
+                metric,
+                dataset=dataset,
+                dataset_size=dataset_size,
+            )
 
         elif mode == "Strategy boxplot":
-            plot_strategy_boxplot(self.ax, df)
+            plot_strategy_boxplot(self.ax, df, metric)
 
+        elif mode == "Efficiency analysis":
+            plot_efficiency(
+                self.ax,
+                df,
+                metric=metric,
+                dataset_size=dataset_size,
+            )
 
-        if df is None or len(df) == 0:
-            return
-
-        
-
-        # update plot
-        plot_curves(self.ax, df, metric)
-
-        # update table
         self.populate_table(df)
 
 def select_best_runs(df):
