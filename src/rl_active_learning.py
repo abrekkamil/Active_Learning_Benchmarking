@@ -692,6 +692,7 @@ class ActiveLearningSystemRL:
             f"{self.config.query_strategy}_"
             f"{time_stamp}.json"
         )
+        self.logger.info(f"the results will be saved in: {self.results_path}")
     def _config_to_dict(self):
         # works for argparse.Namespace or simple config objects
         return vars(self.config)
