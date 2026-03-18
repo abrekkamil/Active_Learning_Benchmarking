@@ -147,13 +147,13 @@ class MultiLabelClassificationModel(BaseModel):
         start = time.time()
         pbar = tqdm(loader, desc=f"Train {epoch}/{total_epochs}", leave=False)
 
-        for images, labels in pbar:
-            images = images.to(self.device)           # [B,3,H,W]
-            labels = labels.to(self.device).float()   # [B,C]
+        for batch in pbar:
+            images = batch['image'].to(self.device)           # [B,3,H,W]
+            labels = batch['labels'].to(self.device)   # [B,C]
 
             self.optimizer.zero_grad(set_to_none=True)
-            logits = self.model(images)               # [B,C]
-            loss   = self.criterion(logits, labels)
+            outputs = self.model(images)              # [B,C]  logits
+            loss   = self.criterion(outputs, labels.float())
             loss.backward()
             self.optimizer.step()
 
