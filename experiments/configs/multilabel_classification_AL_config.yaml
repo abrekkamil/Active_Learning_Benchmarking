@@ -1,0 +1,60 @@
+# experiments/configs/sewerml_multilabel.yaml
+# -----------------------------------------------
+# Active Learning experiment – Sewer-ML
+# Task: multi-label image classification (17 classes)
+# Model: ResNet-50 fine-tuned with BCEWithLogitsLoss
+# -----------------------------------------------
+
+experiment_name: "sewerml_multilabel"
+
+# =====================
+# Dataset
+# =====================
+dataset: "SewerML"
+dataset_type: "sewerml"
+data_dir: "/path/to/Sewer_ML"   # ← update to your dataset root
+num_classes: 17
+img_size: 224
+
+# =====================
+# Task / Model
+# =====================
+task: "multilabel_classification"
+model_name: "resnet50_multilabel"
+pretrained: true
+cls_threshold: 0.5
+
+# =====================
+# Active Learning
+# =====================
+initial_labeled: 0.05    # 5 % of training data as starting pool
+query_size: 50           # samples added per AL cycle
+al_cycles: 10
+epochs_per_cycle: 10
+initial_training_epoch: 15
+
+skip_cold_start: false
+cold_start_strategy: "simple_diversity"   # options: random | simple_diversity | diversity
+query_strategy: "uncertainty"             # options: uncertainty | diversity | hybrid
+
+pool: false              # set true if you have a separate unlabelled pool split
+
+# =====================
+# Training hyper-params
+# =====================
+use_cuda: true
+batch_size: 32
+lr: 0.0001
+weight_decay: 0.0001
+num_workers: 4
+
+# =====================
+# Logging / Reproducibility
+# =====================
+seed: 42
+use_wandb: false
+wandb_project: "AL_benchmark"
+print_freq: 100
+
+checkpoint_dir: "results/checkpoints/sewerml"
+results_dir: "results/sewerml"

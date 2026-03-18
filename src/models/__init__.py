@@ -10,5 +10,6 @@ from .feature_extractor import FeatureExtractor
 from .rl_models import PolicyNet
 
 from .model_factory import build_model
+from .multilabel_model import MultiLabelClassificationModel
 
 print("Model packages initialized.")

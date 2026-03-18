@@ -473,4 +473,7 @@ class ActiveLearningSystem:
 
         if task == "detection":
             return metrics.get("bbox_AP", 0)
+        if task == "multilabel_classification":
+            return metrics.get("macro_f1", metrics.get("map", 0))
+        
     

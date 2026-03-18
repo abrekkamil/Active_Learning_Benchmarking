@@ -56,7 +56,6 @@ class ActiveLearningSystemRL:
             "cuda" if torch.cuda.is_available() and config.use_cuda else "cpu"
         )
         self.prev_score = None
-        self.prev_f1 = None
 
         self.logger = setup_logging(f"{config.experiment_name}_RL")
         self._init_results_path()
@@ -83,20 +82,6 @@ class ActiveLearningSystemRL:
             device=self.device,
             config=config,
         )
-        # if config.model_name == "maskrcnn":
-        #     from .models import MaskRCNNModel
-        #     self.oracle_model = MaskRCNNModel(config.num_classes, self.device, config)
-        #     self.main_model = MaskRCNNModel(config.num_classes, self.device, config)
-        # elif config.model_name == "unet":
-        #     from .models import UNetModel
-        #     self.oracle_model = UNetModel(config.num_classes, self.device,config)
-        #     self.main_model = UNetModel(config.num_classes, self.device,config)
-        # elif config.model_name == "Deeplabv3":
-        #     from .models import DeepLabV3Model
-        #     self.oracle_model = DeepLabV3Model(config.num_classes, self.device, config)
-        #     self.main_model = DeepLabV3Model(config.num_classes, self.device, config)
-        # else:
-        #     raise ValueError("Unknown task")
 
 
         # --------------------
@@ -171,7 +156,6 @@ class ActiveLearningSystemRL:
         # --------------------
         # Tracking
         # --------------------
-        self.prev_dice = None
         self.reward_baseline = 0.0
         self.baseline_momentum = 0.9
         self.history = {}
@@ -200,7 +184,7 @@ class ActiveLearningSystemRL:
     # ==========================================================
     # Feature + uncertainty → state
     # ==========================================================
-    def set_labeled_indices(self, labeled_indices: List[int]):
+    def set_labeled_indices(self, labeled_indices: List[Tuple[str, int]]):
         """
         Manually set the initial labeled pool (override cold start).
         Useful for cold start experiments and ablations.
@@ -229,6 +213,9 @@ class ActiveLearningSystemRL:
 
         if task == "detection":
             return metrics.get("bbox_AP", 0)
+        if task == "multilabel_classification":
+            return metrics.get("macro_f1", metrics.get("map", 0))
+        
 
         return 0
 
@@ -276,8 +263,8 @@ class ActiveLearningSystemRL:
                     confidence = scores.mean()
 
                     if len(scores) > 1:
-                        top2 = torch.topk(scores, 2).values
-                        margin = top2[0] - top2[1]
+                        top2 = torch.topk(scores, 2, dim=1).values
+                        margin = (top2[:, 0] - top2[:, 1]).mean(dim=[1,2])
                     else:
                         margin = scores[0]
 
@@ -289,6 +276,25 @@ class ActiveLearningSystemRL:
                 confidence = torch.stack(confidence_list)
                 margin = torch.stack(margin_list)
 
+
+            elif self.config.task == "multilabel_classification":
+ 
+                # outputs is [B, num_classes] raw logits
+                logits = outputs
+                probs  = torch.sigmoid(logits)             # [B, C]  independent
+ 
+                # Mean binary entropy across all labels → [B]
+                eps = 1e-8
+                entropy    = -(probs * torch.log(probs + eps)
+                               + (1 - probs) * torch.log(1 - probs + eps)).mean(dim=1)
+ 
+                # Mean confidence = mean of max(p, 1-p) across classes → [B]
+                confidence = torch.max(probs, 1 - probs).values.mean(dim=1)
+ 
+                # Margin = distance from 0.5, averaged across classes → [B]
+                margin = (probs - 0.5).abs().mean(dim=1)
+
+                
             # =========================
             # SEMANTIC SEGMENTATION
             # =========================
@@ -321,7 +327,7 @@ class ActiveLearningSystemRL:
     # ==========================================================
     # RL query step
     # ==========================================================
-    def query(self, _):
+    def query(self):
 
         if len(self.unlabeled_indices) == 0:
             return [], None, None, None
@@ -470,7 +476,7 @@ class ActiveLearningSystemRL:
         self.config.policy_temp_start * (0.95 ** self.cycle)
         )
             
-        new_indices, log_prob_sum, entropy, budget = self.query(None)
+        new_indices, log_prob_sum, entropy, budget = self.query()
         if len(new_indices) == 0:
             self.logger.info("No samples selected this cycle.")
             self.cycle += 1
@@ -514,6 +520,7 @@ class ActiveLearningSystemRL:
         if getattr(self.config, "dynamic_query_size", False):
             reward = reward - self.config.cost_lambda * (budget / len(self.unlabeled_indices))
         # Policy update ONLY if a query actually happened
+        advantage = torch.tensor(0.0, device=self.device)
         if log_prob_sum is not None:
             advantage = reward - self.reward_baseline
             advantage = torch.tensor(advantage, device=self.device)
@@ -667,7 +674,46 @@ class ActiveLearningSystemRL:
                     },
                     step=global_epoch,
                 )
-
+        # ==========================================
+        # Multi-label classification
+        # ==========================================
+        elif self.config.task == "multilabel_classification":
+ 
+            macro_f1 = eval_metrics.get("macro_f1", 0)
+            micro_f1 = eval_metrics.get("micro_f1", 0)
+            map_score = eval_metrics.get("map", 0)
+            hamming  = eval_metrics.get("hamming_loss", 0)
+ 
+            self.history.setdefault("val_macro_f1", []).append(macro_f1)
+            self.history.setdefault("val_micro_f1", []).append(micro_f1)
+            self.history.setdefault("val_map", []).append(map_score)
+            self.history.setdefault("val_hamming_loss", []).append(hamming)
+ 
+            self.logger.info(
+                f"Epoch {epoch+1} | "
+                f"Loss: {train_metrics['train_loss']:.4f} | "
+                f"Macro-F1: {macro_f1:.4f} | "
+                f"Micro-F1: {micro_f1:.4f} | "
+                f"mAP: {map_score:.4f} | "
+                f"Hamming: {hamming:.4f} | "
+                f"Labeled: {len(self.labeled_indices)}"
+            )
+ 
+            if self.config.use_wandb:
+                log_to_wandb(
+                    {
+                        "epoch": epoch + 1,
+                        "global_epoch": global_epoch,
+                        "cycle": self.cycle,
+                        "train_loss": train_metrics["train_loss"],
+                        "val_macro_f1": macro_f1,
+                        "val_micro_f1": micro_f1,
+                        "val_map": map_score,
+                        "val_hamming_loss": hamming,
+                        "labeled_count": len(self.labeled_indices),
+                    },
+                    step=global_epoch,
+                )
     def save_results(self):
         results = {
             "config": self._config_to_dict(),

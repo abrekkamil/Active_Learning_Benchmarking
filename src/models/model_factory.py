@@ -17,7 +17,7 @@ from .deeplab_model import DeepLabV3Model
 from .segformer_model import SegFormerModel
 from .maskrcnn_model import MaskRCNNModel
 from .yolo_model import YOLOv8Model
-
+from .multilabel_model import MultiLabelClassificationModel
 
 def build_model(model_name: str, num_classes: int, device, config) -> Any:
     """
@@ -74,7 +74,8 @@ def build_model(model_name: str, num_classes: int, device, config) -> Any:
             config=config,
             task=task,
         )
-
+    elif model_name in ("resnet50_multilabel", "multilabel"):
+        return MultiLabelClassificationModel(num_classes, device, config)
     # ------------------------
     # Error
     # ------------------------

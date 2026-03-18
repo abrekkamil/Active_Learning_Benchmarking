@@ -21,5 +21,13 @@ def load_dataset(config, split):
         return CrackSeg9KDataset(
             config.data_dir, split, img_size=config.img_size
         )
-
+    if config.dataset_type == "sewerml":
+        from .sewerml import SewerMLDataset
+        augment = (split == "train")
+        return SewerMLDataset(
+            root_dir=config.data_dir,
+            split=split,
+            img_size=getattr(config, "img_size", 224),
+            augment=augment,
+        )
     raise ValueError(f"Unknown dataset type: {config.dataset_type}")

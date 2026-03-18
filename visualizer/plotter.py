@@ -1,266 +1,325 @@
 import matplotlib.pyplot as plt
 import pandas as pd
 import numpy as np
+import mplcursors
 
-def plot_curves(ax, df, metric, saved_full_results=None, dataset=None, dataset_size=None):
+# ── Metric → cycles column ────────────────────────────────────────────────────
 
+METRIC_CYCLES_COL = {
+    "f1":      "f1_cycles",
+    "dice":    "dice_cycles",
+    "iou":     "iou_cycles",
+    "mask_AP": "mask_AP_cycles",
+    "box_AP":  "box_AP_cycles",
+}
+
+# Metrics to save into full_scores per segmentation type
+SEMANTIC_METRICS  = ["f1", "dice", "iou"]
+INSTANCE_METRICS  = ["mask_AP", "box_AP"]
+
+
+def _cycles_col(metric: str) -> str:
+    return METRIC_CYCLES_COL.get(metric, f"{metric}_cycles")
+
+
+def _all_metrics_for(metric: str) -> list[str]:
+    """Return the full metric family for a given metric string."""
+    if metric in SEMANTIC_METRICS:
+        return SEMANTIC_METRICS
+    return INSTANCE_METRICS
+
+
+# =============================================================================
+# Full-run performance lookup
+# =============================================================================
+
+def get_full_performance(df, metric: str, saved_full=None) -> dict:
+    """
+    Returns {model_name: {metric: value, ...}} for FULL runs.
+    Falls back to saved_full (from settings) if no FULL runs in df.
+    """
+    full_runs = df[df["run_type"] == "FULL"]
+    full_scores: dict = {}
+
+    metrics_family = _all_metrics_for(metric)
+
+    for _, row in full_runs.iterrows():
+        model = row["model_name"]
+        for m in metrics_family:
+            col = f"{m}_best"
+            if col in row.index and not pd.isna(row[col]):
+                full_scores.setdefault(model, {})[m] = row[col]
+
+    if not full_scores and saved_full:
+        full_scores = saved_full
+
+    return full_scores
+
+
+# =============================================================================
+# plot_curves  —  raw / best runs
+# =============================================================================
+
+def plot_curves(ax, df, metric, saved_full_results=None, model=None, dataset_size=None):
+
+    # clean up previous cursor if any
+    if hasattr(ax, "_cursor"):
+        try:
+            ax._cursor.remove()
+        except Exception:
+            pass
     ax.clear()
 
-    metric_map = {
-        "f1": "F1_cycles",
-        "dice": "dice_cycles",
-        "iou": "iou_cycles",
-    }
-
-    curve_col = metric_map.get(metric)
+    curve_col = _cycles_col(metric)
 
     if curve_col not in df.columns:
+        ax.set_title(f"Column '{curve_col}' not found in data")
+        ax.figure.canvas.draw()
         return
 
-    # ------------------------------------------------
-    # detect full dataset size
-    # ------------------------------------------------
+    if dataset_size is None or dataset_size <= 0:
+        ax.set_title("Dataset size not set")
+        ax.figure.canvas.draw()
+        return
+
+    full_scores = get_full_performance(df, metric, saved_full=saved_full_results)
 
     plotted = False
-    full_scores = get_full_performance(df, metric, saved_full=saved_full_results, dataset=dataset)
-    print("Full dataset performance:", full_scores)
-    for _, row in df.iterrows():
-        model = row["model_name"]
-        full_value = full_scores.get(model, None)
-        y = row[curve_col]
-        
-        if full_value is not None and full_value > 0:
-            y = [v / full_value for v in y]
 
+    for _, row in df.iterrows():
+        row_model   = row["model_name"]
+        full_values = full_scores.get(row_model)
+
+        y = row.get(curve_col)
         labeled = row.get("labeled_curve")
 
-        if y is None or labeled is None:
+        if not y or not labeled or len(y) != len(labeled):
             continue
 
-        if len(y) != len(labeled):
-            continue
+        # normalise to % of full-set performance when available
+        if full_values and metric in full_values and full_values[metric] > 0:
+            full_val = full_values[metric]
+            y = [v / full_val for v in y]
 
-        x_percent = [100 * l / dataset_size for l in labeled]
+        x_pct = [100.0 * l / dataset_size for l in labeled]
+        label = row.get("label") or row.get("fname", "unknown")
 
-        label = row.get("label", row.get("fname"))
-
-        ax.plot(x_percent, y, label=label)
-
+        ax.plot(x_pct, y, label=label)
         plotted = True
 
+    ax.axhline(1.0, linestyle=":", color="black", linewidth=2, label="FULL (100%)")
     ax.set_xlabel("Labeled data (% of full dataset)")
-    ax.set_ylabel(f"{metric.upper()} (% of FULL)")
+    ax.set_ylabel(f"{metric} (ratio of FULL)")
     ax.grid(True, linestyle="--", alpha=0.5)
+
     if plotted:
-        ax.legend(fontsize=7)
-    ax.axhline(
-    1.0,
-    linestyle=":",
-    color="black",
-    linewidth=2,
-    label="FULL (100%)"
-)
+        ax.legend(fontsize=7, bbox_to_anchor=(1.02, 1), loc="upper left", borderaxespad=0)
+
+    # interactive cursor
+    if ax.lines:
+        cursor = mplcursors.cursor(ax.lines, hover=2)
+
+        @cursor.connect("add")
+        def on_add(sel):
+            x, y = sel.target
+            lbl = sel.artist.get_label()
+            sel.annotation.set_text(f"{lbl}\n{y:.3f} @ {x:.1f}%")
+
+        ax._cursor = cursor
+
     ax.figure.canvas.draw()
 
 
-def plot_strategy_mean(ax, df, metric, dataset_size=None):
+# =============================================================================
+# plot_strategy_mean
+# =============================================================================
+
+def plot_strategy_mean(ax, df, metric, dataset=None, dataset_size=None):
 
     ax.clear()
 
-    metric_map = {
-        "f1": "F1_cycles",
-        "dice": "dice_cycles",
-        "iou": "iou_cycles",
-    }
+    curve_col = _cycles_col(metric)
 
-    curve_col = metric_map[metric]
+    if curve_col not in df.columns:
+        ax.set_title(f"Column '{curve_col}' not found in data")
+        ax.figure.canvas.draw()
+        return
 
+    if dataset_size is None or dataset_size <= 0:
+        ax.set_title("Dataset size not set")
+        ax.figure.canvas.draw()
+        return
 
     for strategy, group in df.groupby("strategy"):
-
         curves = []
-        xs = None
+        common_x = None
 
         for _, row in group.iterrows():
+            y = row.get(curve_col)
+            labeled = row.get("labeled_curve")
 
-            y = row[curve_col]
-            labeled = row["labeled_curve"]
-
-            if len(y) != len(labeled):
+            if not y or not labeled or len(y) != len(labeled):
                 continue
 
-            x = [100*l/dataset_size for l in labeled]
-
+            x = [100.0 * l / dataset_size for l in labeled]
             curves.append(y)
-            xs = x
+            common_x = x   # assumes same x grid within a strategy group
 
-        if not curves:
+        if not curves or common_x is None:
             continue
 
-        curves = np.array(curves)
+        arr = np.array(curves)
+        mean_curve = arr.mean(axis=0)
+        std_curve  = arr.std(axis=0)
 
-        mean_curve = curves.mean(axis=0)
-        std_curve = curves.std(axis=0)
-
-        ax.plot(xs, mean_curve, label=strategy)
-
-        ax.fill_between(
-            xs,
-            mean_curve - std_curve,
-            mean_curve + std_curve,
-            alpha=0.2
-        )
+        ax.plot(common_x, mean_curve, label=strategy)
+        ax.fill_between(common_x,
+                        mean_curve - std_curve,
+                        mean_curve + std_curve,
+                        alpha=0.2)
 
     ax.set_xlabel("Labeled data (% of full dataset)")
-    ax.set_ylabel(metric.upper())
+    ax.set_ylabel(metric)
     ax.grid(True, linestyle="--", alpha=0.5)
     ax.legend(fontsize=8)
-
     ax.figure.canvas.draw()
 
-def plot_strategy_boxplot(ax, df, metric, saved_full_results=None, dataset=None, dataset_size=None):
+
+# =============================================================================
+# plot_strategy_boxplot
+# =============================================================================
+
+def plot_strategy_boxplot(ax, df, metric, saved_full_results=None, model=None, dataset_size=None):
 
     ax.clear()
 
     metric_col = f"{metric}_best"
 
-    # Remove FULL runs from boxplot
-    df_plot = df[df["run_type"] != "FULL"]
-
-    data = []
-    labels = []
-    colors = []
-
     color_map = {
-        "AL": "#4C72B0",
-        "RL_AL": "#DD8452",
+        "AL":             "#4C72B0",
+        "RL_AL":          "#DD8452",
         "RL_AL_improved": "#55A868",
     }
 
-    for strategy, group in df_plot.groupby("strategy"):
+    # exclude FULL runs from the boxplot itself
+    df_plot = df[df["run_type"] != "FULL"]
 
-        vals = group[metric_col].dropna().values
+    # order strategies by mean performance (best first)
+    strategy_order = (
+        df_plot.groupby("strategy")[metric_col]
+        .mean()
+        .sort_values(ascending=False)
+        .index.tolist()
+    )
+
+    data, labels, colors = [], [], []
+
+    for strategy in strategy_order:
+        group = df_plot[df_plot["strategy"] == strategy]
+        vals  = group[metric_col].dropna().values
 
         if len(vals) == 0:
             continue
 
         data.append(vals)
         labels.append(strategy)
-
         run_type = group["run_type"].iloc[0]
         colors.append(color_map.get(run_type, "gray"))
-    strategy_order = (
-        df.groupby("strategy")[metric_col]
-        .mean()
-        .sort_values(ascending=False)
-        .index
-    )
 
-    strategy_groups = df.groupby("strategy")
+    if not data:
+        ax.set_title("No data to plot")
+        ax.figure.canvas.draw()
+        return
 
-    for strategy in strategy_order:
-        group = strategy_groups.get_group(strategy)
-
-    ax.boxplot(data, patch_artist=True, showmeans=True)
-    box = ax.boxplot(data, patch_artist=True)
+    # draw once (the first call was being drawn twice before)
+    box = ax.boxplot(data, patch_artist=True, showmeans=True)
 
     for patch, color in zip(box["boxes"], colors):
         patch.set_facecolor(color)
 
-    # ---------------------------------
-    # Add FULL reference line
-    # ---------------------------------
+    # FULL reference line
+    full_scores = get_full_performance(df, metric, saved_full=saved_full_results)
 
-    full_scores = get_full_performance(df, metric, saved_full_results, dataset)
+    if full_scores:
+        # use selected model filter, or fall back to first available model
+        ref_model = (model if (model and model != "ALL") else next(iter(full_scores)))
+        full_values = full_scores.get(ref_model)
 
-    if len(full_scores) > 0:
-
-        full_value = max(full_scores.values())
-
-        ax.axhline(
-            full_value,
-            linestyle="--",
-            color="black",
-            linewidth=2,
-            label="FULL training"
-        )
+        if full_values and metric in full_values:
+            ax.axhline(
+                full_values[metric],
+                linestyle="--", color="black", linewidth=2,
+                label=f"FULL training ({ref_model})"
+            )
 
     ax.set_xticks(range(1, len(labels) + 1))
     ax.set_xticklabels(labels, rotation=60, ha="right", fontsize=9)
-
-    ax.figure.subplots_adjust(bottom=0.30)
-
-    ax.set_ylabel(metric.upper())
-
+    ax.figure.subplots_adjust(bottom=0.35)   # was 0.75 — too much empty space
+    ax.set_ylabel(metric)
     ax.grid(True, linestyle="--", alpha=0.5)
-
     ax.legend()
-
     ax.figure.canvas.draw()
 
 
+# =============================================================================
+# plot_efficiency
+# =============================================================================
 
-
-def performance_at_percent(row, percent):
-
-    labeled = row["labeled_curve"]
-    f1 = row["F1_cycles"]
-
-    if not labeled or not f1:
-        return None
-
-    full = max(labeled)
-
-    target = percent * full
-
-    idx = np.argmin(np.abs(np.array(labeled) - target))
-
-    return f1[idx]
-
-
-
-def get_full_performance(df, metric, saved_full=None, dataset=None):
-
-    metric_col = f"{metric}_best"
-
-    full_runs = df[df["run_type"] == "FULL"]
-
-    full_scores = {}
-
-    for _, row in full_runs.iterrows():
-
-        model = row["model_name"]
-
-        full_scores[model] = row[metric_col]
-
-    if not full_scores and saved_full and dataset in saved_full:
-
-        full_scores = saved_full[dataset]
-
-    return full_scores
-
-def plot_efficiency(ax, df):
+def plot_efficiency(ax, df, metric="f1", dataset_size=None):
 
     ax.clear()
 
-    data = []
-    labels = []
+    data, labels = [], []
 
     for strategy, group in df.groupby("strategy"):
-
         vals = group["labels_95"].dropna()
 
         if len(vals) == 0:
             continue
 
-        data.append(vals.mean())
+        mean_val = vals.mean()
+
+        # optionally express as % of full dataset
+        if dataset_size and dataset_size > 0:
+            mean_val = 100.0 * mean_val / dataset_size
+
+        data.append(mean_val)
         labels.append(strategy)
+
+    if not data:
+        ax.set_title("No efficiency data available")
+        ax.figure.canvas.draw()
+        return
+
+    # sort by efficiency (fewer labels = better → ascending x)
+    order  = np.argsort(data)
+    data   = [data[i]   for i in order]
+    labels = [labels[i] for i in order]
 
     ax.barh(labels, data)
 
-    ax.set_xlabel("Labels needed for 95% performance")
+    xlabel = ("Labels needed for 95% performance (% of dataset)"
+              if dataset_size else "Labels needed for 95% performance")
+    ax.set_xlabel(xlabel)
     ax.set_title("Label Efficiency")
-
     ax.grid(True, linestyle="--", alpha=0.5)
-
     ax.figure.canvas.draw()
+
+
+# =============================================================================
+# performance_at_percent  (utility, unchanged logic but uses _cycles_col)
+# =============================================================================
+
+def performance_at_percent(row, percent, metric="f1"):
+
+    labeled = row.get("labeled_curve")
+    curve   = row.get(_cycles_col(metric))
+
+    if not labeled or not curve:
+        return None
+
+    full   = max(labeled)
+    target = percent * full
+    idx    = np.argmin(np.abs(np.array(labeled) - target))
+
+    return curve[idx]

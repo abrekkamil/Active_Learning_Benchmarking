@@ -36,8 +36,8 @@ class ActiveLearningConfig:
     # =====================
     # Task / Model
     # =====================
-    model_name: str = "unet"  # resnet | unet
-    task: str = "segmentation"  # detection | segmentation
+    model_name: str = "unet"  # resnet | unet | resnet50_multilabel | deeplabv3 | segformer | maskrcnn | yolo
+    task: str = "segmentation"  # segmentation | detection | instance_segmentation | multilabel_classification
     use_cuda: bool = True
 
     batch_size: int = 8
@@ -47,7 +47,11 @@ class ActiveLearningConfig:
     lr_steps: List[int] = field(default_factory=lambda: [30, 50])
 
     unet_norm: str = "bn"        # 👈 NEW (used in UNetModel)
-
+    # =====================
+    # Multi-label Classification (OPTIONAL)
+    # =====================
+    cls_threshold: float = 0.5   # sigmoid threshold for binary prediction
+    pretrained: bool = True       # use ImageNet weights for classification backbone
     # =====================
     # RL Active Learning (OPTIONAL)
     # =====================

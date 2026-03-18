@@ -1,0 +1,81 @@
+# experiments/configs/sewerml_multilabel_rl.yaml
+# -----------------------------------------------
+# RL Active Learning experiment – Sewer-ML
+# Task: multi-label image classification (17 classes)
+# Model: ResNet-50 (oracle + main model share same architecture)
+# Policy: PolicyNet DQN over backbone features + uncertainty state
+# -----------------------------------------------
+
+experiment_name: "sewerml_multilabel_rl"
+
+# =====================
+# Dataset
+# =====================
+dataset: "SewerML"
+dataset_type: "sewerml"
+data_dir: "/path/to/Sewer_ML"   # ← update to your dataset root
+num_classes: 17
+img_size: 224
+
+# =====================
+# Task / Model
+# =====================
+task: "multilabel_classification"
+model_name: "resnet50_multilabel"
+pretrained: true
+cls_threshold: 0.5
+
+# =====================
+# Active Learning
+# =====================
+initial_labeled: 0.05
+skip_cold_start: false
+cold_start_strategy: "simple_diversity"
+
+use_rl: true
+query_strategy: "rl_policy"
+
+al_cycles: 10
+al_budget: 50            # images selected by policy per cycle
+query_size: 50           # fallback for non-dynamic budget
+
+pool: false
+
+# =====================
+# RL Policy
+# =====================
+policy_lr: 0.0001
+policy_hidden: 256
+entropy_beta: 0.01
+policy_temp_start: 1.5
+policy_temp_end: 0.7
+candidate_ratio: 0.4     # top-entropy fraction fed to the policy each cycle
+
+dynamic_query_size: false
+budget_options: [25, 50, 75]
+cost_lambda: 0.001
+
+# =====================
+# Training hyper-params
+# =====================
+oracle_epochs: 10         # epochs to train the frozen oracle on initial set
+initial_training_epoch: 10
+epochs_per_cycle: 10
+cycle_epochs: 10
+
+use_cuda: true
+batch_size: 32
+lr: 0.0001
+weight_decay: 0.0001
+num_workers: 4
+
+# =====================
+# Logging / Reproducibility
+# =====================
+seed: 42
+use_wandb: false
+wandb_project: "AL_benchmark"
+print_freq: 100
+
+checkpoint_dir: "results/checkpoints/sewerml_rl"
+results_dir: "results/sewerml_rl"
