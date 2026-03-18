@@ -133,7 +133,11 @@ class MultiLabelClassificationModel(BaseModel):
 
     def train_epoch(self, dataset, epoch: int, total_epochs: int) -> Dict[str, float]:
         self.model.train()
-
+        for i in range(len(dataset)):
+            sample = dataset[i]
+            if not isinstance(sample["image"], torch.Tensor):
+                print(f"BAD SAMPLE at index {i}")
+                break
         loader = DataLoader(
             dataset,
             batch_size=getattr(self.config, "batch_size", 32),
