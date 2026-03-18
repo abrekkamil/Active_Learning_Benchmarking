@@ -142,7 +142,11 @@ class MultiLabelClassificationModel(BaseModel):
             pin_memory=True,
             drop_last=False,
         )
+        batch = next(iter(loader))
 
+        print(type(batch))
+        print(batch["image"].shape)
+        print(batch["labels"].shape)
         total_loss = 0.0
         start = time.time()
         pbar = tqdm(loader, desc=f"Train {epoch}/{total_epochs}", leave=False)
