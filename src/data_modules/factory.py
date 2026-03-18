@@ -29,7 +29,6 @@ def load_dataset(config, split):
             img_dir=config.data_dir,
             labels_path=config.data_dir,
             split=split,
-            img_size=getattr(config, "img_size", 224),
             augment=augment,
         )
     raise ValueError(f"Unknown dataset type: {config.dataset_type}")
