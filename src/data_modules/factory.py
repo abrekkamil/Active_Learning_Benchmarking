@@ -22,10 +22,12 @@ def load_dataset(config, split):
             config.data_dir, split, img_size=config.img_size
         )
     if config.dataset_type == "sewerml":
-        from .sewerml import SewerMLDataset
+        from .sewerml import MultiLabelDataset
         augment = (split == "train")
-        return SewerMLDataset(
-            root_dir=config.data_dir,
+        return MultiLabelDataset(
+            args=config,
+            img_dir=config.data_dir,
+            labels_path=config.data_dir,
             split=split,
             img_size=getattr(config, "img_size", 224),
             augment=augment,
