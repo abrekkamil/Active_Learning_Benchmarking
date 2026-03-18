@@ -36,7 +36,7 @@ class MultiLabelDataset(Dataset):
             transforms.ToTensor(),
             transforms.Normalize(mean=[0.523, 0.453, 0.345], std=[0.210, 0.199, 0.154])
         ])
-
+        print(f"Using {split} transforms")
         self.image_transform = trainTransform if self.split == "train" else testTransform
         self.loader = loader
         self.remove_labels = remove_labels
