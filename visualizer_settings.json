@@ -39,7 +39,7 @@
     },
     "last_metric": {
         "Masonry": "mask_AP",
-        "CrackSeg9k": "dice",
+        "CrackSeg9k": "f1",
         "DeepCrack": "f1"
     }
 }

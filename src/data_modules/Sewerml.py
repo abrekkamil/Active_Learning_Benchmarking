@@ -1,159 +1,308 @@
-"""
-Sewer-ML multi-label classification dataset.
-
-Directory structure expected:
-    root/
-        SewerML_train.csv
-        SewerML_valid.csv
-        (images referenced by Filename column in CSV)
-
-CSV format:
-    Filename, RB, OB, PF, DE, FS, IS, RO, IN, AF, BE, FO, GR, PH, PB, OS, OP, OK
-    (17 binary label columns: 1 = defect present)
-
-Returns: (image, label_vector)
-    image        : Tensor [3, H, W]  – normalized RGB
-    label_vector : Tensor [17]       – float32 multi-hot
-"""
-
 import os
 import pandas as pd
+import numpy as np
+
 import torch
-from torch.utils.data import Dataset
-from torchvision import transforms
-from PIL import Image
+from torch.utils.data import Dataset, DataLoader
+from torchvision.datasets.folder import default_loader
+import torchvision.transforms as transforms
+from .data_utils import get_unk_mask_indices
+import argparse
 
-# Official Sewer-ML defect class names in column order
-SEWERML_CLASSES = [
-    "RB", "OB", "PF", "DE", "FS", "IS",
-    "RO", "IN", "AF", "BE", "FO", "GR",
-    "PH", "PB", "OS", "OP", "OK",
-]
-NUM_CLASSES = len(SEWERML_CLASSES)  # 17
+import warnings
+warnings.filterwarnings("ignore")
 
-# Dataset-specific normalisation (provided by Sewer-ML authors)
-SEWERML_MEAN = [0.523, 0.453, 0.345]
-SEWERML_STD  = [0.210, 0.199, 0.154]
+Labels = ["RB","OB","PF","DE","FS","IS","RO","IN","AF","BE","FO","GR","PH","PB","OS","OP","OK", "VA", "ND"]
 
+class MultiLabelDataset(Dataset):
+    def __init__(self, args, img_dir, labels_path, val_list = None, train_list = None, remove_labels= None,image_transform=None, loader=default_loader, onlyDefects=False, known_labels=0,testing=False,split='Train'):
+        super(MultiLabelDataset, self).__init__()
+        
+        self.args = args
+        self.img_dir = img_dir
+        self.labels_path = labels_path
+        self.testing = testing
+        self.split = split
 
-class SewerMLDataset(Dataset):
-    """
-    Multi-label image classification dataset for Sewer-ML.
+        self.image_transform = image_transform
+        self.loader = loader
+        self.remove_labels = remove_labels
+        self.LabelNames = Labels.copy()
+        self.LabelNames.remove("VA")
+        self.LabelNames.remove("ND")
+        
+        if self.remove_labels is not None:
+            for remove_label in self.remove_labels:
+                self.LabelNames.remove(remove_label)
+            
+        # if self.args.num_labels == 15:
+        #     self.LabelNames.remove("IS")
+        #     self.LabelNames.remove("OS")
 
-    Parameters
-    ----------
-    root_dir : str
-        Directory that contains SewerML_train.csv / SewerML_valid.csv
-        and the image files.
-    split : str
-        One of 'train' or 'val'.
-    img_size : int
-        Square resize target (default 224).
-    augment : bool
-        Apply random horizontal flip + colour jitter during training.
-    """
+        # if self.args.num_labels == 14:
+        #     self.LabelNames.remove("PF")
+        #     self.LabelNames.remove("IS")
+        #     self.LabelNames.remove("OS")
+        
+        # if  self.args.num_labels == 10:
+        #     self.LabelNames.remove("RB")
+        #     self.LabelNames.remove("PF")
+        #     self.LabelNames.remove("IS")
+        #     self.LabelNames.remove("RO")
+        #     self.LabelNames.remove("IN")
+        #     self.LabelNames.remove("PH")
+        #     self.LabelNames.remove("OS")
+            
+    
+        self.onlyDefects = onlyDefects
 
-    _CSV_MAP = {
-        "train": "SewerML_train.csv",
-        "val":   "SewerML_valid.csv",
-        # allow 'test' as alias for val if no separate test CSV exists
-        "test":  "SewerML_valid.csv",
-    }
+        self.num_classes = len(self.LabelNames)
+        self.known_labels = known_labels
+        
+        self.val_list = val_list
+        self.train_list = train_list
+        
+        self.loadAnnotations()
+        self.class_weights = self.getClassWeights()
 
-    def __init__(
-        self,
-        root_dir: str,
-        split: str = "train",
-        img_size: int = 224,
-        augment: bool = True,
-    ):
-        assert split in self._CSV_MAP, (
-            f"split must be one of {list(self._CSV_MAP)}, got '{split}'"
-        )
+        
 
-        self.root_dir = root_dir
-        self.split    = split
-        self.img_size = img_size
+    def loadAnnotations(self):
+        gtPath = os.path.join(self.labels_path, "SewerML_{}.csv".format(self.split))
+        
+        gt = pd.read_csv(gtPath, sep=",", encoding="utf-8", usecols = self.LabelNames + ["Filename", "Defect"])
+       
+        if self.onlyDefects:
+            gt = gt[gt["Defect"] == 1]
 
-        # ------------------------------------------------------------------
-        # Load CSV
-        # ------------------------------------------------------------------
-        csv_path = os.path.join(root_dir, self._CSV_MAP[split])
-        if not os.path.exists(csv_path):
-            raise FileNotFoundError(
-                f"SewerML CSV not found: {csv_path}\n"
-                f"Expected one of: {[os.path.join(root_dir, v) for v in self._CSV_MAP.values()]}"
-            )
+        if self.train_list is not None:
+            if self.split == "valid":
+                gt = gt[gt['Filename'].isin(self.val_list)]
+            elif self.split == "train":
+                gt = gt[gt['Filename'].isin(self.train_list)]
+                
 
-        df = pd.read_csv(csv_path)
+        
+        self.imgPaths = gt["Filename"].values
+        self.labels = gt[self.LabelNames].values
+        
 
-        # Validate label columns exist
-        missing = [c for c in SEWERML_CLASSES if c not in df.columns]
-        if missing:
-            raise ValueError(
-                f"CSV is missing label columns: {missing}\n"
-                f"Available columns: {df.columns.tolist()}"
-            )
-
-        self.filenames = df["Filename"].tolist()
-        self.labels    = torch.tensor(
-            df[SEWERML_CLASSES].values, dtype=torch.float32
-        )  # [N, 17]
-
-        # ------------------------------------------------------------------
-        # Class weights for BCEWithLogitsLoss pos_weight
-        # Shape [17], weight_c = (N - pos_c) / pos_c
-        # ------------------------------------------------------------------
-        pos = self.labels.sum(dim=0).clamp(min=1)
-        neg = len(self.labels) - pos
-        self.class_weights = (neg / pos).clamp(max=50.0)
-
-        # ------------------------------------------------------------------
-        # Transforms
-        # ------------------------------------------------------------------
-        train_tf = [
-            transforms.Resize((img_size, img_size)),
-        ]
-        if augment and split == "train":
-            train_tf += [
-                transforms.RandomHorizontalFlip(),
-                transforms.ColorJitter(
-                    brightness=0.1, contrast=0.1,
-                    saturation=0.1, hue=0.05
-                ),
-            ]
-        train_tf += [
-            transforms.ToTensor(),
-            transforms.Normalize(mean=SEWERML_MEAN, std=SEWERML_STD),
-        ]
-        self.transform = transforms.Compose(train_tf)
-
-        print(
-            f"[SewerML] {len(self.filenames)} samples loaded "
-            f"for split='{split}' | classes={NUM_CLASSES}"
-        )
-
-    # ------------------------------------------------------------------
     def __len__(self):
-        return len(self.filenames)
+        return len(self.imgPaths)
 
-    def __getitem__(self, idx):
-        fname = self.filenames[idx]
-        img_path = os.path.join(self.root_dir, fname)
+    def __getitem__(self, index):
+        path = self.imgPaths[index]
+    
+        img = self.loader(os.path.join(self.img_dir, self.split, path)) # type: ignore 
 
-        image = Image.open(img_path).convert("RGB")
-        image = self.transform(image)          # [3, H, W]
-        label = self.labels[idx]               # [17]  float32
+        if self.image_transform is not None:
+            img = self.image_transform(img)
 
-        return image, label
 
-    # ------------------------------------------------------------------
-    # Helpers
-    # ------------------------------------------------------------------
-    @property
-    def num_classes(self):
-        return NUM_CLASSES
+        labels = torch.Tensor(self.labels[index, :]) 
+        unk_mask_indices = get_unk_mask_indices(img,self.testing,self.num_classes,self.known_labels)
 
-    @property
-    def class_names(self):
-        return SEWERML_CLASSES
+        mask = labels.clone()
+        mask.scatter_(0,torch.Tensor(unk_mask_indices).long() , -1)
+
+        sample = {}
+        sample['image'] = img
+        sample['labels'] = labels
+        sample['mask'] = mask
+        sample['imageIDs'] = str(path)
+
+        return sample
+
+
+    def getClassWeights(self):
+        data_len = self.labels.shape[0]
+        # print('The shape of labels is {}'.format(self.labels.shape)) # (31711,17)
+        class_weights = []
+
+        for defect in range(self.num_classes):
+            pos_count = len(self.labels[self.labels[:,defect] == 1])
+            '''
+            self.labels[:,defect] == 1 è¡¨ç¤ºdefectåˆ—æœ‰å“ªäº›è¡Œæ˜¯1
+            self.labels[self.labels[:,defect] == 1] è¡¨ç¤ºé€‰æ‹©ä¸º1çš„è¡Œ
+            len(self.labels[self.labels[:,defect] == 1]) è¡¨ç¤ºä¸º1çš„è¡Œçš„ä¸ªæ•°
+            '''
+            neg_count = data_len - pos_count
+
+            class_weight = neg_count/pos_count if pos_count > 0 else 0
+            class_weights.append(np.asarray([class_weight]))
+            '''
+            UserWarning: Creating a tensor from a list of numpy.ndarrays is extremely slow. 
+            Please consider converting the list to a single numpy.ndarray with numpy.array() before converting to a tensor.
+            '''
+        return torch.as_tensor(np.array(class_weights)).squeeze()
+
+
+class MultiLabelDatasetInference(Dataset):
+    def __init__(self, args, annRoot, imgRoot, val_list, split="Val", remove_labels = None ,transform=None, loader=default_loader, onlyDefects=False):
+        super(MultiLabelDatasetInference, self).__init__()
+        self.args = args
+        self.imgRoot = imgRoot
+        self.annRoot = annRoot
+        self.split = split
+
+        self.transform = transform
+        self.loader = loader
+        self.remove_labels = remove_labels
+        
+        self.LabelNames = Labels.copy()
+        self.LabelNames.remove("VA")
+        self.LabelNames.remove("ND")
+
+        for remove_label in self.remove_labels:
+            self.LabelNames.remove(remove_label)
+
+        
+        # if self.args.num_labels == 15:
+        #     self.LabelNames.remove("IS")
+        #     self.LabelNames.remove("OS")
+
+        # if self.args.num_labels == 14:
+        #     self.LabelNames.remove("PF")
+        #     self.LabelNames.remove("IS")
+        #     self.LabelNames.remove("OS")
+        
+        # if  self.args.num_labels == 10:
+        #     self.LabelNames.remove("RB")
+        #     self.LabelNames.remove("PF")
+        #     self.LabelNames.remove("IS")
+        #     self.LabelNames.remove("RO")
+        #     self.LabelNames.remove("IN")
+        #     self.LabelNames.remove("PH")
+        #     self.LabelNames.remove("OS")
+            
+        self.onlyDefects = onlyDefects
+        self.val_list = val_list
+
+        self.num_classes = len(self.LabelNames)
+        
+        self.loadAnnotations()
+
+    def loadAnnotations(self):
+        
+        gtPath = os.path.join(self.annRoot, "SewerML_{}.csv".format(self.split))
+        
+        gt = pd.read_csv(gtPath, sep=",", encoding="utf-8", usecols = self.LabelNames + ["Filename", "Defect"])
+
+        if self.val_list is not None:
+            gt = gt[gt['Filename'].isin(self.val_list)]
+            
+        self.imgPaths = gt["Filename"].values
+        self.labels = gt[self.LabelNames].values
+
+        
+    def __len__(self):
+        return len(self.imgPaths)
+
+    def __getitem__(self, index):
+        path = self.imgPaths[index]
+
+        img = self.loader(os.path.join(self.imgRoot, self.split, path)) # type: ignore # This is the original big dataset!
+        
+        if self.transform is not None:
+            img = self.transform(img)
+
+        labels = torch.Tensor(self.labels[index, :]) 
+
+        mask = torch.Tensor([-1]*self.args.num_labels)
+       
+        sample = {}
+        sample['image'] = img
+        sample['labels'] = labels
+        sample['mask'] = mask
+        sample['imageIDs'] = str(path)
+
+        return sample
+
+
+class MultiLableTwoStageInference(Dataset):
+    def __init__(self, annRoot, imgRoot, split="Val", transform=None, loader=default_loader) -> None:
+        super(MultiLableTwoStageInference, self).__init__()
+        self.imgRoot = imgRoot
+        self.annRoot = annRoot
+        self.split = split
+
+        self.transform = transform
+        self.loader = loader
+
+        self.LabelNames = Labels.copy()
+        self.LabelNames.remove("VA")
+        self.LabelNames.remove("ND")
+        
+        self.num_classes = len(self.LabelNames)
+        
+        self.loadAnnotations()
+    
+    def loadAnnotations(self):
+        gtPath = 'binary_results/after.csv'
+        gt = pd.read_csv(gtPath, sep=",", encoding="utf-8", usecols = self.LabelNames + ["Filename", "Defect"])
+        
+        self.imgPaths = gt["Filename"].values
+        self.labels = gt[self.LabelNames].values
+
+    def __len__(self):
+        return len(self.imgPaths)
+
+    def __getitem__(self, index):
+        path = self.imgPaths[index]
+
+        img = self.loader(os.path.join(self.imgRoot, self.split, path)) 
+       
+        if self.transform is not None:
+            img = self.transform(img)
+
+        labels = torch.Tensor(self.labels[index, :]) 
+        mask = torch.Tensor([-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1])
+        
+        sample = {}
+        sample['image'] = img
+        sample['labels'] = labels
+        sample['mask'] = mask
+        sample['imageIDs'] = str(path)
+
+        return sample
+    
+
+if __name__ == "__main__":
+    pass
+    # Train_Transform = transforms.Compose([transforms.Resize((640, 640)),
+    #                                     transforms.RandomChoice([
+    #                                     transforms.RandomCrop(640),
+    #                                     transforms.RandomCrop(576),
+    #                                     transforms.RandomCrop(512),
+    #                                     transforms.RandomCrop(384),
+    #                                     transforms.RandomCrop(320)
+    #                                     ]),
+    #                                     transforms.Resize((576, 576)),
+    #                                     transforms.RandomHorizontalFlip(),
+    #                                     transforms.ToTensor(),
+    #                                     transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])])
+    
+    # Test_Transform = transforms.Compose([transforms.Resize((640, 640)),
+    #                                     transforms.CenterCrop(576),
+    #                                     transforms.ToTensor(),
+    #                                     transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])])
+    
+    
+    # train_dataset = MultiLabelDataset(labels_path="./Annotations", img_dir="./Datasets/mini", split="Train", image_transform=Train_Transform)
+    # val_dataset = MultiLabelDatasetInference(annRoot="./Annotations", imgRoot="./Datasets/mini", split="Val", transform=Test_Transform)
+    # torch.set_printoptions(threshold=np.inf) # è®¾ç½®æ‰“å°ä¸è¾“å‡ºçœç•¥å·
+    # # print(len(train_dataset)) # 1040129
+    
+    # train_loader = DataLoader(train_dataset, batch_size=64,shuffle=True, drop_last=False, num_workers=8) 
+    # val_loader = DataLoader(val_dataset, batch_size=64,shuffle=True, drop_last=False, num_workers=8)
+    # # print(len(train_loader)) # 1040129/64 = 16253
+    # # print(train_dataset.__dict__)
+    # # print('==========================')
+    # # print(val_dataset.__dict__)
+    # from tqdm import tqdm
+    # for batch in tqdm(val_loader, mininterval=0.5,desc='Inference',leave=False,ncols=50):
+    #     print(batch)
+    #     # with open("../sample.txt", "a") as f:
+    #     #         f.write(str(sample))
+    #     # print('The shape of images is {}'.format(sample['image'].shape)) # torch.Size([64, 3, 576, 576])
+    # # print('the dataset are {}'.format(train_dataset.__dict__))
