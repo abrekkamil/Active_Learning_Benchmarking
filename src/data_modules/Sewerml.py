@@ -85,6 +85,8 @@ class MultiLabelDataset(Dataset):
         return len(self.imgPaths)
 
     def __getitem__(self, index):
+
+
         path = self.imgPaths[index]
     
         img = self.loader(os.path.join(self.img_dir, self.split, path)) # type: ignore 
@@ -92,7 +94,8 @@ class MultiLabelDataset(Dataset):
         if self.image_transform is not None:
             img = self.image_transform(img)
 
-
+        if not isinstance(img, torch.Tensor):
+            print(f"WARNING: Image is not tensor! {type(img)}")
         labels = torch.Tensor(self.labels[index, :]) 
         unk_mask_indices = get_unk_mask_indices(img,self.testing,self.num_classes,self.known_labels)
 
