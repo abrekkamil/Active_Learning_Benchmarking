@@ -22,6 +22,7 @@ def load_dataset(config, split):
             config.data_dir, split, img_size=config.img_size
         )
     if config.dataset_type == "sewerml":
+        print(f"Loading Sewerml dataset with split: {split}")
         from .sewerml import MultiLabelDataset
         if split == 'val':
             split = 'valid' # Sewerml only has Train and Test splits, so we use Test for validation
