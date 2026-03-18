@@ -24,6 +24,7 @@ def load_dataset(config, split):
     if config.dataset_type == "sewerml":
         from .sewerml import MultiLabelDataset
         return MultiLabelDataset(
+            args=config,
             img_dir=config.data_dir,
             labels_path=config.data_dir,
             testing=False,
