@@ -23,12 +23,10 @@ def load_dataset(config, split):
         )
     if config.dataset_type == "sewerml":
         from .sewerml import MultiLabelDataset
-        augment = (split == "train")
         return MultiLabelDataset(
-            args=config,
             img_dir=config.data_dir,
             labels_path=config.data_dir,
-            split=split,
-            augment=augment,
+            testing=False,
+            split= split
         )
     raise ValueError(f"Unknown dataset type: {config.dataset_type}")

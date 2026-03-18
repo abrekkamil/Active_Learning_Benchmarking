@@ -15,7 +15,7 @@ warnings.filterwarnings("ignore")
 Labels = ["RB","OB","PF","DE","FS","IS","RO","IN","AF","BE","FO","GR","PH","PB","OS","OP","OK", "VA", "ND"]
 
 class MultiLabelDataset(Dataset):
-    def __init__(self, args, img_dir, labels_path, val_list = None, train_list = None, remove_labels= None,image_transform=None, loader=default_loader, onlyDefects=False, known_labels=0,testing=False,split='Train'):
+    def __init__(self, args, img_dir, labels_path, val_list = None, train_list = None, remove_labels= None, loader=default_loader, onlyDefects=False, known_labels=0,testing=False,split='Train'):
         super(MultiLabelDataset, self).__init__()
         
         self.args = args
@@ -23,8 +23,21 @@ class MultiLabelDataset(Dataset):
         self.labels_path = labels_path
         self.testing = testing
         self.split = split
+        trainTransform = transforms.Compose([
+            transforms.Resize((args.scale_size, args.scale_size)),
+            transforms.RandomHorizontalFlip(),
+            transforms.ColorJitter(brightness=0.1, contrast=0.1, saturation=0.1, hue=0.1),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=[0.523, 0.453, 0.345], std=[0.210, 0.199, 0.154])
+        ])
+        
+        testTransform = transforms.Compose([
+            transforms.Resize((args.scale_size, args.scale_size)),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=[0.523, 0.453, 0.345], std=[0.210, 0.199, 0.154])
+        ])
 
-        self.image_transform = image_transform
+        self.image_transform = trainTransform if self.split == "train" else testTransform
         self.loader = loader
         self.remove_labels = remove_labels
         self.LabelNames = Labels.copy()
@@ -33,26 +46,7 @@ class MultiLabelDataset(Dataset):
         
         if self.remove_labels is not None:
             for remove_label in self.remove_labels:
-                self.LabelNames.remove(remove_label)
-            
-        # if self.args.num_labels == 15:
-        #     self.LabelNames.remove("IS")
-        #     self.LabelNames.remove("OS")
-
-        # if self.args.num_labels == 14:
-        #     self.LabelNames.remove("PF")
-        #     self.LabelNames.remove("IS")
-        #     self.LabelNames.remove("OS")
-        
-        # if  self.args.num_labels == 10:
-        #     self.LabelNames.remove("RB")
-        #     self.LabelNames.remove("PF")
-        #     self.LabelNames.remove("IS")
-        #     self.LabelNames.remove("RO")
-        #     self.LabelNames.remove("IN")
-        #     self.LabelNames.remove("PH")
-        #     self.LabelNames.remove("OS")
-            
+                self.LabelNames.remove(remove_label)   
     
         self.onlyDefects = onlyDefects
 
