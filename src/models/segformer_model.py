@@ -42,7 +42,7 @@ class SegFormerWithBottleneck(nn.Module):
         """
         Return global pooled encoder features: [B, hidden_dim]
         """
-        outputs = self.segformer.segformer(pixel_values=x, return_dict=True)
+        outputs = self.segformer.segformer(pixel_values=x)
 
         # last_hidden_state → [B, seq_len, hidden_dim]
         feats = outputs.last_hidden_state.mean(dim=1)
@@ -107,7 +107,7 @@ class SegFormerModel:
         self.model.eval()
         with torch.no_grad():
             batch = _batched([_ensure_rgb(i) for i in images]).to(self.device)
-            enc = self.model.segformer(pixel_values=batch, return_dict=True)  # BaseModelOutput
+            enc = self.model.segformer(pixel_values=batch)  # BaseModelOutput
             # last_hidden_state: [B, seq, hidden]
             feats = enc.last_hidden_state.mean(dim=1)  # [B, hidden]
         return feats.detach().cpu()
@@ -137,7 +137,7 @@ class SegFormerModel:
 
             self.optimizer.zero_grad(set_to_none=True)
 
-            out = self.model(pixel_values=images, labels=masks, return_dict=True)
+            out = self.model(pixel_values=images, labels=masks)
             loss = out.loss
 
             loss.backward()
@@ -174,7 +174,7 @@ class SegFormerModel:
                 if masks.dim() == 4:
                     masks = masks.argmax(dim=1)
 
-                out = self.model(pixel_values=images, return_dict=True)
+                out = self.model(pixel_values=images)
                 logits = out.logits  # [B,C,h,w] (often lower-res)
 
                 # Upsample to mask resolution
@@ -222,7 +222,7 @@ class SegFormerModel:
         self.model.eval()
         with torch.no_grad():
             batch = _batched([_ensure_rgb(i) for i in images]).to(self.device)
-            out = self.model(pixel_values=batch, return_dict=True)
+            out = self.model(pixel_values=batch)
             logits = out.logits
             # upsample to input resolution
             logits = F.interpolate(logits, size=batch.shape[-2:], mode="bilinear", align_corners=False)
@@ -237,7 +237,7 @@ class SegFormerModel:
         with torch.no_grad():
             for img in images:
                 x = _ensure_rgb(img).unsqueeze(0).to(self.device)
-                out = self.model(pixel_values=x, return_dict=True)
+                out = self.model(pixel_values=x)
                 logits = out.logits
                 logits = F.interpolate(logits, size=x.shape[-2:], mode="bilinear", align_corners=False)
                 probs = F.softmax(logits, dim=1)

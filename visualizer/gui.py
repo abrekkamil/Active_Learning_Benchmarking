@@ -132,7 +132,11 @@ class ExperimentGUI(QMainWindow):
             "Reach 90%",
             "Reach 95%",
             "Reach 100%",
-            "Reach 95% before 25% data",   # fixed: was "50%" in filter_df
+            "Reach 100% before 30% data",   # fixed: was "50%" in filter_df
+            "Reach 100% before 40% data",   # fixed: was "50%" in filter_df
+            "Reach 100% before 50% data",   # fixed: was "50%" in filter_df
+            "Reach 100% before 80% data",   # fixed: was "50%" in filter_df
+            "Reach 100% before 100% data",   # fixed: was "50%" in filter_df
         ])
 
         filter_layout.addWidget(QLabel("Plot mode"));   filter_layout.addWidget(self.plot_mode)
@@ -325,11 +329,35 @@ class ExperimentGUI(QMainWindow):
             df = df[df["labels_95"].notna()]
         elif level == "Reach 100%":
             df = df[df["labels_100"].notna()]
-        elif level == "Reach 95% before 25% data" and self.dataset_size_box.text().isdigit():
+        elif level == "Reach 100% before 30% data" and self.dataset_size_box.text().isdigit():
             dataset_size = int(self.dataset_size_box.text())
             df = df[
-                df["labels_95"].notna() &
-                (df["labels_95"] <= 0.25 * dataset_size)
+                df["labels_100"].notna() &
+                (df["labels_100"] <= 0.30 * dataset_size)
+            ]
+        elif level == "Reach 100% before 40% data" and self.dataset_size_box.text().isdigit():
+            dataset_size = int(self.dataset_size_box.text())
+            df = df[
+                df["labels_100"].notna() &
+                (df["labels_100"] <= 0.40 * dataset_size)
+            ]
+        elif level == "Reach 100% before 50% data" and self.dataset_size_box.text().isdigit():
+            dataset_size = int(self.dataset_size_box.text())
+            df = df[
+                df["labels_100"].notna() &
+                (df["labels_100"] <= 0.50 * dataset_size)
+            ]
+        elif level == "Reach 100% before 80% data" and self.dataset_size_box.text().isdigit():
+            dataset_size = int(self.dataset_size_box.text())
+            df = df[
+                df["labels_100"].notna() &
+                (df["labels_100"] <= 0.80 * dataset_size)
+            ]
+        elif level == "Reach 100% before 100% data" and self.dataset_size_box.text().isdigit():
+            dataset_size = int(self.dataset_size_box.text())
+            df = df[
+                df["labels_100"].notna() &
+                (df["labels_100"] <= dataset_size)
             ]
 
         return df
