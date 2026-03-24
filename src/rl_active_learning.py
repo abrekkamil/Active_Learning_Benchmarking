@@ -299,16 +299,15 @@ class ActiveLearningSystemRL:
             # SEMANTIC SEGMENTATION
             # =========================
             else:
-
-                if isinstance(outputs, dict):
-                    logits = outputs["out"]
-
-                elif hasattr(outputs, "logits"):
+                if hasattr(outputs, "logits"):
                     logits = outputs.logits
 
-                else:
-                    logits = outputs
+                elif isinstance(outputs, dict) and "out" in outputs:
+                    logits = outputs["out"]
 
+                else:
+                    raise ValueError(f"Unknown model output format: {type(outputs)}")
+                
                 probs = F.softmax(logits, dim=1)
 
                 entropy = -(probs * torch.log(probs + 1e-8)).sum(dim=1).mean(dim=[1,2])
