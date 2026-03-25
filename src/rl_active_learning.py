@@ -228,13 +228,21 @@ class ActiveLearningSystemRL:
             return dataset.coco.imgs[img_id]["file_name"]
 
         return f"{source}_{idx}"   
+    def forward_model(self, images):
+        try:
+            # HuggingFace-style
+            return self.model(pixel_values=images)
+        except TypeError:
+            # Torchvision-style
+            return self.model(images)
+        
     def _compute_state(self, images: torch.Tensor):
 
         with torch.no_grad():
 
             feats = self.oracle_model.model.get_bottleneck_features(images).detach()
 
-            outputs = self.oracle_model.model(images)
+            outputs = self.oracle_model.forward_model(images)
 
             # =========================
             # INSTANCE SEGMENTATION

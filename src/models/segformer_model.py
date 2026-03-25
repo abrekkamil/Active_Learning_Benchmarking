@@ -99,17 +99,20 @@ class SegFormerModel:
         self.model.eval()
 
     # ---- RL feature hook ----
-    def get_bottleneck_features(self, images: List[torch.Tensor]) -> torch.Tensor:
-        """
-        Returns pooled transformer features [B, hidden_dim] for RL state.
-        Uses SegFormer encoder last_hidden_state: [B, seq, hidden]
-        """
+    def get_bottleneck_features(self, images):
+
         self.model.eval()
         with torch.no_grad():
-            batch = _batched([_ensure_rgb(i) for i in images]).to(self.device)
-            enc = self.model.segformer(pixel_values=batch)  # BaseModelOutput
-            # last_hidden_state: [B, seq, hidden]
+
+            if isinstance(images, list):
+                batch = _batched([_ensure_rgb(i) for i in images]).to(self.device)
+            else:
+                batch = images.to(self.device)
+
+            enc = self.model.segformer(pixel_values=batch)
+
             feats = enc.last_hidden_state.mean(dim=1)  # [B, hidden]
+
         return feats.detach().cpu()
 
     # ---- core API ----
