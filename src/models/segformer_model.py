@@ -45,7 +45,7 @@ class SegFormerWithBottleneck(nn.Module):
         outputs = self.segformer.segformer(pixel_values=x)
 
         # last_hidden_state → [B, seq_len, hidden_dim]
-        feats = outputs.last_hidden_state.mean(dim=1)
+        feats = outputs.last_hidden_state.mean(dim=[2, 3])  # global average pool over spatial dimensions
 
         return feats
     
