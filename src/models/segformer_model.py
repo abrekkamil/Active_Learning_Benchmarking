@@ -220,7 +220,14 @@ class SegFormerModel:
             "accuracy": float(acc),
             "pixel_acc": float(np.mean(pixel_accs)) if pixel_accs else 0.0,
         }
-
+    def forward_model(self, images):
+        try:
+            # HuggingFace-style
+            return self.model(pixel_values=images)
+        except TypeError:
+            # Torchvision-style
+            return self.model(images)
+        
     def predict(self, images: List[torch.Tensor]) -> torch.Tensor:
         self.model.eval()
         with torch.no_grad():

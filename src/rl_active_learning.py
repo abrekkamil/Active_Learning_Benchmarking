@@ -228,13 +228,7 @@ class ActiveLearningSystemRL:
             return dataset.coco.imgs[img_id]["file_name"]
 
         return f"{source}_{idx}"   
-    def forward_model(self, images):
-        try:
-            # HuggingFace-style
-            return self.model(pixel_values=images)
-        except TypeError:
-            # Torchvision-style
-            return self.model(images)
+
         
     def _compute_state(self, images: torch.Tensor):
 
