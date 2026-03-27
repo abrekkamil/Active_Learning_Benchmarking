@@ -17,7 +17,8 @@ class YoloInstanceSegmentationDataset(Dataset):
         self.split = split
         self.is_train = is_train
         self.img_size = img_size
-
+        if split == 'val':
+            split = 'valid' # Sewerml only has Train and Test splits, so we use Test for validation
         self.img_dir = os.path.join(root_dir, split,"images" )
         self.label_dir = os.path.join(root_dir, split, "labels")
 
