@@ -33,4 +33,10 @@ def load_dataset(config, split):
             testing=False,
             split= split
         )
+    if config.dataset_type == "yolo_segmentation":
+        from .yolo_instance_segmentation import YoloInstanceSegmentationDataset
+        return YoloInstanceSegmentationDataset(
+            config.data_dir, split, config.img_size
+        )
+        
     raise ValueError(f"Unknown dataset type: {config.dataset_type}")

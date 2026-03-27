@@ -1,3 +1,5 @@
+import os
+
 import numpy as np
 from typing import List, Dict, Optional, Union
 
@@ -93,8 +95,12 @@ class YOLOv8Model:
         """
         data_yaml = getattr(self.config, "yolo_data_yaml", None)
         if data_yaml is None:
-            raise ValueError("config must include `yolo_data_yaml` (created by prepare_yolo_dataset).")
-
+            data_folder = getattr(self.config, "data_dir", None)
+            if data_folder is None:
+                raise ValueError("config must include `yolo_data_yaml` (path to YOLO data.yaml) or `yolo_data_folder` (containing data.yaml).")
+            else:
+                data_yaml = os.path.join(data_folder, "data.yaml")
+                
         return self.fit(
             data_yaml=str(data_yaml),
             imgsz=getattr(self.config, "img_size", 640),
@@ -104,8 +110,8 @@ class YOLOv8Model:
             device=0 if self._device_str == "cuda" else "cpu",
             project=getattr(self.config, "yolo_project", None),
             name=getattr(self.config, "yolo_name", None),
-            resume=True if epoch > 1 else False,
-            verbose=False,
+            resume=False if epoch > 1 else False,
+            verbose=True,
         )
 
     def evaluate(self, dataset=None) -> Dict[str, float]:
@@ -115,7 +121,11 @@ class YOLOv8Model:
         """
         data_yaml = getattr(self.config, "yolo_data_yaml", None)
         if data_yaml is None:
-            raise ValueError("config must include `yolo_data_yaml` (path to YOLO data.yaml).")
+            data_folder = getattr(self.config, "data_dir", None)
+            if data_folder is None:
+                raise ValueError("config must include `yolo_data_yaml` (path to YOLO data.yaml) or `yolo_data_folder` (containing data.yaml).")
+            else:
+                data_yaml = os.path.join(data_folder, "data.yaml")
 
         imgsz = getattr(self.config, "imgsz", 640)
         batch = getattr(self.config, "batch_size", 8)
@@ -156,7 +166,6 @@ class YOLOv8Model:
         Returns a list of Ultralytics Results.
         We pass tensors directly (BCHW). Ultralytics supports numpy/torch inputs.
         """
-        self.model.predictor = None  # avoid stale predictor settings across calls
 
         batch = torch.stack([_ensure_rgb(im) for im in images], dim=0)
 
