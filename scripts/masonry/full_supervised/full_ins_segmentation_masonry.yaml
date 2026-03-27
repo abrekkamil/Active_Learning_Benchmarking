@@ -1,0 +1,41 @@
+# Base configuration for active learning experiments
+
+dataset: "masonry"
+dataset_type: "coco_instance"
+data_dir: '/home3/vzcl68/Datasets/masonry-11/'
+num_classes: 4  # Including background
+img_size: 256
+
+
+model_name: "maskrcnn"
+pool: false
+batch_size: 4
+# Active learning parameters
+initial_labeled: 1  # 10% initially labeled
+query_size: 0.1        # Query 5 samples per cycle
+al_cycles: 10         # 5 active learning cycles
+epochs_per_cycle: 15  # Train for 15 epochs per cycle
+initial_training_epoch: 10  # Initial training epochs
+
+# Strategies
+cold_start_strategy: "simple_diversity"
+query_strategy: "uncertainty"
+task: "instance_segmentation"
+
+# Model parameters
+use_cuda: true
+lr: 0.005
+momentum: 0.9
+weight_decay: 0.0001
+lr_steps: [30, 50]
+
+# Logging
+use_wandb: false
+wandb_project: "AL_benchmark"
+print_freq: 100
+
+# Technical settings
+num_workers: 4
+seed: 42
+checkpoint_dir: "../results/checkpoints"
+results_dir: "../results"
