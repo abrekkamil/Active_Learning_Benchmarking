@@ -18,8 +18,8 @@ class YoloInstanceSegmentationDataset(Dataset):
         self.is_train = is_train
         self.img_size = img_size
 
-        self.img_dir = os.path.join(root_dir, "images", split)
-        self.label_dir = os.path.join(root_dir, "labels", split)
+        self.img_dir = os.path.join(root_dir, split,"images" )
+        self.label_dir = os.path.join(root_dir, split, "labels")
 
         self.images = sorted(os.listdir(self.img_dir))
 
