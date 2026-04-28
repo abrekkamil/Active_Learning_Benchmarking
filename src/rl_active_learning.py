@@ -308,12 +308,12 @@ class ActiveLearningSystemRL:
             # SEMANTIC SEGMENTATION
             # =========================
             else:
-                if hasattr(outputs, "logits"):
-                    logits = outputs.logits
-
-                elif isinstance(outputs, dict) and "out" in outputs:
+                if isinstance(outputs, dict):
                     logits = outputs["out"]
-
+                elif hasattr(outputs, "logits"):
+                    logits = outputs.logits
+                elif isinstance(outputs, torch.Tensor):
+                    logits = outputs
                 else:
                     raise ValueError(f"Unknown model output format: {type(outputs)}")
                 
