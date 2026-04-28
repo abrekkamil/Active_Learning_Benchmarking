@@ -229,14 +229,21 @@ class ActiveLearningSystemRL:
 
         return f"{source}_{idx}"   
 
-        
+    def forward_model(self, images):
+        try:
+            # HuggingFace-style (SegFormer)
+            return self.oracle_model.model(pixel_values=images)
+        except TypeError:
+            # Torchvision / U-Net style
+            return self.oracle_model.model(images)
+
     def _compute_state(self, images: torch.Tensor):
 
         with torch.no_grad():
 
             feats = self.oracle_model.model.get_bottleneck_features(images).detach()
 
-            outputs = self.oracle_model.forward_model(images)
+            outputs = self.forward_model(images)
 
             # =========================
             # INSTANCE SEGMENTATION
