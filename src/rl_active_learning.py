@@ -399,7 +399,7 @@ class ActiveLearningSystemRL:
         if getattr(self.config, "dynamic_query_size", False):
 
             budget_ratio = torch.sigmoid(budget_logits)
-            budget_ratio = torch.clamp(budget_ratio, 0.01, 0.1)
+            budget_ratio = torch.clamp(budget_ratio, 0.01, 0.02)  # Limit to 1-2% of pool
 
             budget = int(budget_ratio.item() * len(candidate_pool))
             budget = max(1, budget)

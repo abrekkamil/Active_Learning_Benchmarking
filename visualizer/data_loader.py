@@ -27,6 +27,8 @@ CONFIG_COLS = [
 # ==========================================================
 
 def discover_run_files(results_dir: Path):
+    print(f"Discovering run files in {results_dir}...")
+    print(f"Found {len(list(results_dir.rglob('*.json')))} JSON files.")
     return sorted(results_dir.rglob("*.json"))
 
 

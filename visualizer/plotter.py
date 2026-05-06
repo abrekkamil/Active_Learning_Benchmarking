@@ -241,7 +241,7 @@ def plot_strategy_boxplot(ax, df, metric, saved_full_results=None, model=None, d
         .index.tolist()
     )
 
-    data, labels, colors = [], [], []
+    data, labels, colors, peak_labels_data = [], [], [], []
 
     for strategy in strategy_order:
         group = df_plot[df_plot["strategy"] == strategy]
@@ -250,8 +250,16 @@ def plot_strategy_boxplot(ax, df, metric, saved_full_results=None, model=None, d
         if len(vals) == 0:
             continue
 
+        # number of labelled images needed to reach the peak for each run
+        peak_imgs = group.apply(
+            lambda row: labels_to_peak(row, metric, dataset_size),
+            axis=1
+        ).dropna().values
+
         data.append(vals)
         labels.append(make_short_label(strategy))
+        peak_labels_data.append(peak_imgs)
+
         plot_group = group["plot_group"].iloc[0]
         colors.append(group_color_map.get(plot_group, "gray"))
 
@@ -300,9 +308,41 @@ def plot_strategy_boxplot(ax, df, metric, saved_full_results=None, model=None, d
     # axis formatting
     ax.set_xticks(range(1, len(labels) + 1))
     ax.set_xticklabels(labels, rotation=35, ha="right", fontsize=10)
-    ax.set_ylabel(metric.upper(), fontsize=11)
-    ax.set_title(f"{metric.upper()} by Strategy", fontsize=14, pad=12)
+    ax.set_ylabel(f"Best {metric.upper()} score", fontsize=11)
+    ax.set_title(f"{metric.upper()} Peak Performance by Strategy", fontsize=14, pad=12)
     ax.grid(True, axis="y", linestyle="--", alpha=0.5)
+
+    # annotate each box with median number of images needed to reach peak
+    y_min, y_max = ax.get_ylim()
+    y_range = y_max - y_min
+
+    for i, peak_imgs in enumerate(peak_labels_data, start=1):
+        if len(peak_imgs) == 0:
+            continue
+
+        median_peak_imgs = np.median(peak_imgs)
+
+        if dataset_size and dataset_size > 0:
+            median_peak_pct = 100.0 * median_peak_imgs / dataset_size
+            txt = f"peak\n{median_peak_imgs:.0f} imgs\n({median_peak_pct:.1f}%)"
+        else:
+            txt = f"peak\n{median_peak_imgs:.0f} imgs"
+
+        box_top = np.nanmax(data[i - 1])
+
+        ax.text(
+            i,
+            box_top + 0.03 * y_range,
+            txt,
+            ha="center",
+            va="bottom",
+            fontsize=8,
+            rotation=0
+        )
+
+    # give extra space for annotations
+    ax.set_ylim(y_min, y_max + 0.15 * y_range)
+
 
     # more balanced spacing
     ax.figure.subplots_adjust(bottom=0.22, right=0.84)
@@ -433,3 +473,25 @@ def performance_at_percent(row, percent, metric="f1"):
     idx    = np.argmin(np.abs(np.array(labeled) - target))
 
     return curve[idx]
+
+
+def labels_to_peak(row, metric, dataset_size=None):
+    """
+    Returns the number of labelled images used when the metric curve reaches its peak.
+    """
+    curve_col = _cycles_col(metric)
+
+    y = row.get(curve_col)
+    labeled = row.get("labeled_curve")
+
+    if not y or not labeled or len(y) != len(labeled):
+        return np.nan
+
+    y = np.array(y, dtype=float)
+    labeled = np.array(labeled, dtype=float)
+
+    if len(y) == 0:
+        return np.nan
+
+    peak_idx = np.nanargmax(y)
+    return labeled[peak_idx]
