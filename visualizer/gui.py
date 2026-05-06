@@ -3,14 +3,14 @@ from PyQt6.QtCore import Qt
 
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg
 import matplotlib.pyplot as plt
-
+from datetime import datetime
 from data_loader import load_results
 from plotter import plot_curves, plot_strategy_mean, plot_strategy_boxplot, plot_efficiency
 import pandas as pd
 import json
 from pathlib import Path
 from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT
-
+import csv
 SETTINGS_FILE = Path("visualizer_settings.json")
 
 # ── Per-dataset config ────────────────────────────────────────────────────────
@@ -506,7 +506,7 @@ class ExperimentGUI(QMainWindow):
             plot_efficiency(self.ax, df, metric=metric, dataset_size=dataset_size)
 
         self.populate_table(df)
-
+        self._save_plot_data_csv(df, mode, dataset, metric)
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -544,3 +544,27 @@ def select_representative_runs(df: pd.DataFrame) -> pd.DataFrame:
         selected.append(chosen)
 
     return pd.concat(selected)
+
+def _save_plot_data_csv(self, df, mode, dataset, metric):
+    """Write a CSV of the rows being plotted, next to wherever plots get saved."""
+    if df is None or len(df) == 0:
+        return
+
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    safe_mode = mode.replace(" ", "_").lower()
+    out = Path(f"plot_data_{dataset}_{safe_mode}_{metric}_{ts}.csv")
+
+    # Pick a small, useful column subset; fall back to whatever exists.
+    preferred = [
+        "fname", "day_folder", "run_type", "label",
+        "model_name", "cold_start_strategy", "query_strategy",
+        "initial_labeled", "query_size", "dynamic_query_size",
+        "al_cycles", "epochs_per_cycle",
+        "initial_training_epoch", "oracle_epochs",
+        "f1_best", "dice_best", "iou_best",
+        "labeled_initial", "labeled_final", "labeled_chosen", "images_at_best",
+        "finished", "bad_params",
+    ]
+    cols = [c for c in preferred if c in df.columns]
+    df.to_csv(out, columns=cols, index=False)
+    print(f"[plot data] wrote {len(df)} rows to {out}")

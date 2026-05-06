@@ -1,0 +1,133 @@
+{
+  "config": {
+    "dataroot": "../..//Datasets/",
+    "scale_size": 224,
+    "batch_size": 32,
+    "test_batch_size": 32,
+    "workers": 4,
+    "train_known_labels": 1.0,
+    "test_known_labels": 1.0,
+    "inference": false,
+    "model": "resnet101",
+    "al_cycles": 10,
+    "al_budget": 100,
+    "initial_percentage": 0.001,
+    "candidate_ratio": 0.2,
+    "oracle_epochs": 2,
+    "initial_epochs": 2,
+    "cycle_epochs": 2,
+    "lr": 0.0001,
+    "policy_lr": 0.0001,
+    "policy_hidden": 256,
+    "policy_temp_start": 1.0,
+    "policy_temp_end": 0.5,
+    "entropy_beta": 0.001,
+    "save_model": false,
+    "results_dir": "./results",
+    "experiment_name": "rl_al_run",
+    "task": "classification",
+    "dataset_type": "sewerml",
+    "cold_start_strategy": "diversity",
+    "query_strategy": "reinforce",
+    "num_cycles": 10,
+    "epochs_per_cycle": 30,
+    "use_wandb": false,
+    "wandb_project": "rl_active_learning",
+    "wandb_entity": null,
+    "wandb_run_name": null,
+    "num_workers": 4,
+    "num_epochs": 50,
+    "model_save_path": "./checkpoints",
+    "gpu": 0
+  },
+  "history": {
+    "epoch": [
+      0,
+      1
+    ],
+    "global_epoch": [
+      0,
+      1
+    ],
+    "cycle": [
+      0,
+      0
+    ],
+    "train_loss": [
+      0.327283868961262,
+      0.11956328018145128
+    ],
+    "labeled_count": [
+      1040,
+      1040
+    ],
+    "train_time": [
+      6.574726104736328,
+      6.434083938598633
+    ],
+    "val_macro_f1": [
+      0.012184244522710712,
+      0.10912552615781713
+    ],
+    "val_micro_f1": [
+      0.04184139481689527,
+      0.4723602255102292
+    ],
+    "val_mAP": [
+      0.18317481059935603,
+      0.2225755287930079
+    ],
+    "val_ciw_f2": [
+      0.003959808485565635,
+      0.10969496143769422
+    ],
+    "val_ov_p": [
+      0.8705082550987374,
+      0.6177254639347851
+    ],
+    "val_ov_r": [
+      [
+        0.02143585982589841
+      ],
+      [
+        0.38237779407544403
+      ]
+    ],
+    "val_ov_f1": [
+      [
+        0.04184139434779195
+      ],
+      [
+        0.4723602207871147
+      ]
+    ],
+    "val_pc_p": [
+      [
+        0.1570183375545827
+      ],
+      [
+        0.22136821999401693
+      ]
+    ],
+    "val_pc_r": [
+      [
+        0.006557099455394009
+      ],
+      [
+        0.10610571471561552
+      ]
+    ],
+    "val_pc_f1": [
+      [
+        0.012588501202178966
+      ],
+      [
+        0.14345222621369594
+      ]
+    ],
+    "val_zero_one": [
+      0.537040739430663,
+      0.549928486843117
+    ]
+  }
+}
