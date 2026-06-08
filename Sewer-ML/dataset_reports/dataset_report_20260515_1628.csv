@@ -1,0 +1,18 @@
+code,description,ciw,train_count,train_pct,val_count,val_pct
+RB,Root in pipe,1.0,45821,4.4053,5538,4.2585
+OB,Obstacle,0.5518,184379,17.7266,23624,18.1659
+PF,Pipe fracture / crack,0.2896,16254,1.5627,2021,1.5541
+DE,Deformation,0.1622,19084,1.8348,2038,1.5671
+FS,Settled deposits,0.6419,283983,27.3027,36218,27.8501
+IS,Intruding sealing material,0.1847,6271,0.6029,881,0.6775
+RO,Surface damage,0.3559,22637,2.1764,2917,2.2431
+IN,Infiltration,0.3131,23782,2.2864,2812,2.1623
+AF,Attached deposits,0.0811,74856,7.1968,9059,6.966
+BE,Pipe collapse,0.2275,66499,6.3933,7929,6.0971
+FO,Foreign object,0.2477,5010,0.4817,597,0.4591
+GR,Sealing ring displacement,0.0901,53986,5.1903,6889,5.2974
+PH,Hole in pipe,0.4167,23685,2.2771,3432,2.6391
+PB,Broken pipe,0.4167,6746,0.6486,765,0.5883
+OS,Other settled deposits,0.9009,4625,0.4447,457,0.3514
+OP,Other pipe damage,0.3829,5325,0.512,612,0.4706
+OK,Other defects,0.4396,154624,14.8658,19655,15.1139

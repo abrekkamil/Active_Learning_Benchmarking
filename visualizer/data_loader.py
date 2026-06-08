@@ -148,6 +148,9 @@ def compute_cycle_metrics(history, config, row, task="segmentation"):
         m1 = history.get("val_mask_AP", [])
         m2 = history.get("val_bbox_AP", [])
         m3 = None
+    else:
+        m1 = m2 = m3 = None
+        raise ValueError(f"Unsupported task: {task}")
 
     labeled = history.get("labeled_count", [])
 
@@ -161,7 +164,15 @@ def compute_cycle_metrics(history, config, row, task="segmentation"):
     start = 0
 
     # initial training
-    if initial_epochs > 0:
+    if row["run_type"] == "FULL":
+        # FULL runs have no AL cycles; treat the whole history as one block
+        if m1:
+            m1_cycles.append(max(m1))
+            m2_cycles.append(max(m2))
+            if m3 is not None:
+                m3_cycles.append(max(m3))
+            labeled_cycles.append(labeled[-1] if labeled else None)
+    elif initial_epochs > 0:
         if row["run_type"] == "FULL":
             initial_epochs = len(m1)
 
@@ -207,11 +218,13 @@ def compute_cycle_metrics(history, config, row, task="segmentation"):
 def is_run_finished(row):
     if row["run_type"] == "FULL":
         return True
-
+    if pd.isna(row["al_cycles"]) or row["al_cycles"] < 0:
+        return False
+    
     expected_cycles = int(row["al_cycles"])
 
     if row["task"] == "segmentation":
-        cycles = row["f1_cycles"]
+        cycles = row["f1_cycles"]   
     elif row["task"] == "instance_segmentation":
         cycles = row["mask_AP_cycles"]
     else:

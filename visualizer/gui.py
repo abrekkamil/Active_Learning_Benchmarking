@@ -7,6 +7,7 @@ from datetime import datetime
 from data_loader import load_results
 from plotter import plot_curves, plot_strategy_mean, plot_strategy_boxplot, plot_efficiency
 import pandas as pd
+import numpy as np
 import json
 from pathlib import Path
 from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT
@@ -132,6 +133,8 @@ class ExperimentGUI(QMainWindow):
             "Reach 90%",
             "Reach 95%",
             "Reach 100%",
+            "Stopped before 20% data",
+            "Reach 100% before 20% data",   # fixed: was "50%" in filter_df
             "Reach 100% before 30% data",   # fixed: was "50%" in filter_df
             "Reach 100% before 40% data",   # fixed: was "50%" in filter_df
             "Reach 100% before 50% data",   # fixed: was "50%" in filter_df
@@ -257,7 +260,11 @@ class ExperimentGUI(QMainWindow):
     # ── Data loading ──────────────────────────────────────────────────────────
 
     def load_directory(self):
-        folder = QFileDialog.getExistingDirectory(self, "Select results directory")
+        folder = QFileDialog.getExistingDirectory(
+            self,
+            "Select results directory",
+            r"C:\Users\vzcl68\OneDrive - Durham University\Durham\Active_Learning_Experiments"
+        )
         if not folder:
             return
 
@@ -329,11 +336,62 @@ class ExperimentGUI(QMainWindow):
             df = df[df["labels_95"].notna()]
         elif level == "Reach 100%":
             df = df[df["labels_100"].notna()]
-        elif level == "Reach 100% before 30% data" and self.dataset_size_box.text().isdigit():
+
+        elif level == "Stopped before 20% data" and self.dataset_size_box.text().isdigit():
+            dataset_size = int(self.dataset_size_box.text())
+            limit_20 = 0.20 * dataset_size
+
+            label_col = "labeled_curve"
+
+            if label_col not in df.columns:
+                print("labeled_curve column not found.")
+                print("Available columns:", df.columns.tolist())
+                return df
+
+            df = df.copy()
+
+            def max_labeled_used(curve):
+                if curve is None:
+                    return None
+                if not isinstance(curve, (list, tuple, np.ndarray)):
+                    return None
+                if len(curve) == 0:
+                    return None
+
+                values = pd.to_numeric(pd.Series(curve), errors="coerce").dropna()
+                if values.empty:
+                    return None
+
+                return values.max()
+
+            df["max_labeled_count_for_run"] = df[label_col].apply(max_labeled_used)
+
+            print("Stopped before 20% data filter")
+            print("Dataset size:", dataset_size)
+            print("20% limit:", limit_20)
+            print(
+                df[["label", "run_type", label_col, "max_labeled_count_for_run"]]
+                .sort_values("max_labeled_count_for_run")
+                .tail(20)
+            )
+
+            df = df[
+                df["max_labeled_count_for_run"].notna() &
+                (df["max_labeled_count_for_run"] <= limit_20)
+            ]
+
+        elif level == "Reach 100% before 20% data" and self.dataset_size_box.text().isdigit():
             dataset_size = int(self.dataset_size_box.text())
             df = df[
                 df["labels_100"].notna() &
-                (df["labels_100"] <= 0.30 * dataset_size)
+                (df["labels_100"] <= 0.20 * dataset_size)
+            ]
+
+        elif level == "Reach 100% before 20% data" and self.dataset_size_box.text().isdigit():
+            dataset_size = int(self.dataset_size_box.text())
+            df = df[
+                df["labels_100"].notna() &
+                (df["labels_100"] <= 0.20 * dataset_size)
             ]
         elif level == "Reach 100% before 40% data" and self.dataset_size_box.text().isdigit():
             dataset_size = int(self.dataset_size_box.text())
@@ -508,6 +566,30 @@ class ExperimentGUI(QMainWindow):
         self.populate_table(df)
         self._save_plot_data_csv(df, mode, dataset, metric)
 
+
+    def _save_plot_data_csv(self, df, mode, dataset, metric):
+        """Write a CSV of the rows being plotted, next to wherever plots get saved."""
+        if df is None or len(df) == 0:
+            return
+
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        safe_mode = mode.replace(" ", "_").lower()
+        out = Path(f"plot_data_{dataset}_{safe_mode}_{metric}_{ts}.csv")
+
+        # Pick a small, useful column subset; fall back to whatever exists.
+        preferred = [
+            "fname", "day_folder", "run_type", "label",
+            "model_name", "cold_start_strategy", "query_strategy",
+            "initial_labeled", "query_size", "dynamic_query_size",
+            "al_cycles", "epochs_per_cycle",
+            "initial_training_epoch", "oracle_epochs",
+            "f1_best", "dice_best", "iou_best",
+            "labeled_initial", "labeled_final", "labeled_chosen", "images_at_best",
+            "finished", "bad_params",
+        ]
+        cols = [c for c in preferred if c in df.columns]
+        df.to_csv(out, columns=cols, index=False)
+        print(f"[plot data] wrote {len(df)} rows to {out}")
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 def select_best_runs(df: pd.DataFrame, metric: str = "f1") -> pd.DataFrame:
@@ -544,27 +626,3 @@ def select_representative_runs(df: pd.DataFrame) -> pd.DataFrame:
         selected.append(chosen)
 
     return pd.concat(selected)
-
-def _save_plot_data_csv(self, df, mode, dataset, metric):
-    """Write a CSV of the rows being plotted, next to wherever plots get saved."""
-    if df is None or len(df) == 0:
-        return
-
-    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-    safe_mode = mode.replace(" ", "_").lower()
-    out = Path(f"plot_data_{dataset}_{safe_mode}_{metric}_{ts}.csv")
-
-    # Pick a small, useful column subset; fall back to whatever exists.
-    preferred = [
-        "fname", "day_folder", "run_type", "label",
-        "model_name", "cold_start_strategy", "query_strategy",
-        "initial_labeled", "query_size", "dynamic_query_size",
-        "al_cycles", "epochs_per_cycle",
-        "initial_training_epoch", "oracle_epochs",
-        "f1_best", "dice_best", "iou_best",
-        "labeled_initial", "labeled_final", "labeled_chosen", "images_at_best",
-        "finished", "bad_params",
-    ]
-    cols = [c for c in preferred if c in df.columns]
-    df.to_csv(out, columns=cols, index=False)
-    print(f"[plot data] wrote {len(df)} rows to {out}")

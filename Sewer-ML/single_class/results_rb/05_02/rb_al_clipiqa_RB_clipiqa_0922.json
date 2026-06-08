@@ -1,0 +1,39 @@
+{
+  "config": {
+    "dataroot": "/nobackup/projects/bddur59/Code/Python_files/RB/../../../Datasets/",
+    "scale_size": 224,
+    "batch_size": 32,
+    "workers": 8,
+    "target_class": "RB",
+    "main_arch": "resnet101",
+    "al_cycles": 10,
+    "al_budget": 2000,
+    "candidate_ratio": 0.02,
+    "cold_start_strategy": "clipiqa",
+    "initial_percentage": 0.1,
+    "secondary_strategy": "balanced",
+    "pos_ratio": 0.5,
+    "clipiqa_json_path": "/nobackup/projects/bddur59/Code/Python_files/RB/../IQA/clip_iqa_train_all.json",
+    "clipiqa_threshold": 0.3,
+    "oracle_epochs": 15,
+    "initial_epochs": 10,
+    "cycle_epochs": 10,
+    "lr": 0.0001,
+    "weight_decay": 0.0001,
+    "policy_lr": 0.0001,
+    "policy_hidden": 256,
+    "policy_temp_start": 1.0,
+    "policy_temp_end": 0.5,
+    "entropy_beta": 0.001,
+    "seed": 42,
+    "gpu": 0,
+    "results_dir": "/nobackup/projects/bddur59/Code/Python_files/RB/results_rb",
+    "experiment_name": "rb_al_clipiqa",
+    "dataset_type": "sewerml"
+  },
+  "history": {
+    "cold_start_strategy": "clipiqa",
+    "cold_start_labeled": 104012,
+    "cold_start_report_path": "/nobackup/projects/bddur59/Code/Python_files/RB/results_rb/05_02/selection_report_clipiqa_rb_al_clipiqa_0922.json"
+  }
+}

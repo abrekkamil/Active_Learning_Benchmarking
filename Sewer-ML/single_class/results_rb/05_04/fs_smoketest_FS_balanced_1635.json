@@ -1,0 +1,102 @@
+{
+  "config": {
+    "dataroot": "../../../Datasets/",
+    "scale_size": 224,
+    "batch_size": 32,
+    "workers": 4,
+    "target_class": "FS",
+    "main_arch": "resnet18",
+    "al_cycles": 1,
+    "al_budget": 100,
+    "candidate_ratio": 0.02,
+    "cold_start_strategy": "balanced",
+    "initial_percentage": 0.0005,
+    "secondary_strategy": "balanced",
+    "pos_ratio": 0.3,
+    "clipiqa_json_path": "../IQA/clip_iqa_train_all.json",
+    "clipiqa_threshold": 0.3,
+    "oracle_epochs": 1,
+    "initial_epochs": 1,
+    "cycle_epochs": 1,
+    "lr": 0.0001,
+    "weight_decay": 0.0001,
+    "policy_lr": 0.0001,
+    "policy_hidden": 256,
+    "policy_temp_start": 1.0,
+    "policy_temp_end": 0.5,
+    "entropy_beta": 0.001,
+    "seed": 42,
+    "gpu": 0,
+    "results_dir": "./results_rb",
+    "experiment_name": "fs_smoketest",
+    "dataset_type": "sewerml"
+  },
+  "history": {
+    "cold_start_strategy": "balanced",
+    "cold_start_labeled": 520,
+    "cold_start_report_path": "./results_rb/05_04/selection_report_balanced_fs_smoketest_1635.json",
+    "epoch": [
+      0
+    ],
+    "cycle": [
+      0
+    ],
+    "labeled_count": [
+      520
+    ],
+    "train_loss": [
+      0.7774865662350374
+    ],
+    "train_time": [
+      1220.2844033241272
+    ],
+    "val_n": [
+      130046
+    ],
+    "val_n_pos_true": [
+      881
+    ],
+    "val_n_pos_pred": [
+      50074
+    ],
+    "val_pos_rate_true": [
+      0.006774525936976147
+    ],
+    "val_pos_rate_pred": [
+      0.3850483675007305
+    ],
+    "val_AP": [
+      0.027655402596493434
+    ],
+    "val_AUC": [
+      0.8060701687645078
+    ],
+    "val_precision": [
+      0.014678276151296082
+    ],
+    "val_recall": [
+      0.8342792281498297
+    ],
+    "val_f1": [
+      0.028848984397998233
+    ],
+    "val_f2": [
+      0.0685659912683309
+    ],
+    "val_threshold": [
+      0.5
+    ],
+    "val_best_f2": [
+      0.12122261667650353
+    ],
+    "val_best_f2_threshold": [
+      0.8792465329170227
+    ],
+    "val_best_f2_precision": [
+      0.03489096573208723
+    ],
+    "val_best_f2_recall": [
+      0.3178206583427923
+    ]
+  }
+}

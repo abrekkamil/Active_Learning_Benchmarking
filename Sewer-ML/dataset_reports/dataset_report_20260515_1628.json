@@ -1,0 +1,260 @@
+{
+  "generated_at": "2026-05-15T16:28:23",
+  "dataroot": "/nobackup/projects/bddur59/Datasets",
+  "include_va": false,
+  "labels": [
+    "RB",
+    "OB",
+    "PF",
+    "DE",
+    "FS",
+    "IS",
+    "RO",
+    "IN",
+    "AF",
+    "BE",
+    "FO",
+    "GR",
+    "PH",
+    "PB",
+    "OS",
+    "OP",
+    "OK"
+  ],
+  "train": {
+    "csv": "/nobackup/projects/bddur59/Datasets/Sewer_ML/SewerML_train.csv",
+    "summary": {
+      "n_images": 1040129,
+      "n_with_no_labels": 552820,
+      "n_with_exactly_one_label": 172948,
+      "n_with_two_or_more_labels": 314361,
+      "pct_no_labels": 53.1492,
+      "pct_exactly_one": 16.6276,
+      "pct_two_or_more": 30.2233,
+      "mean_labels_per_image": 0.9591,
+      "max_labels_per_image": 8
+    },
+    "per_label": {
+      "RB": {
+        "count": 45821,
+        "percent_of_split": 4.4053,
+        "ciw": 1.0,
+        "description": "Root in pipe"
+      },
+      "OB": {
+        "count": 184379,
+        "percent_of_split": 17.7266,
+        "ciw": 0.5518,
+        "description": "Obstacle"
+      },
+      "PF": {
+        "count": 16254,
+        "percent_of_split": 1.5627,
+        "ciw": 0.2896,
+        "description": "Pipe fracture / crack"
+      },
+      "DE": {
+        "count": 19084,
+        "percent_of_split": 1.8348,
+        "ciw": 0.1622,
+        "description": "Deformation"
+      },
+      "FS": {
+        "count": 283983,
+        "percent_of_split": 27.3027,
+        "ciw": 0.6419,
+        "description": "Settled deposits"
+      },
+      "IS": {
+        "count": 6271,
+        "percent_of_split": 0.6029,
+        "ciw": 0.1847,
+        "description": "Intruding sealing material"
+      },
+      "RO": {
+        "count": 22637,
+        "percent_of_split": 2.1764,
+        "ciw": 0.3559,
+        "description": "Surface damage"
+      },
+      "IN": {
+        "count": 23782,
+        "percent_of_split": 2.2864,
+        "ciw": 0.3131,
+        "description": "Infiltration"
+      },
+      "AF": {
+        "count": 74856,
+        "percent_of_split": 7.1968,
+        "ciw": 0.0811,
+        "description": "Attached deposits"
+      },
+      "BE": {
+        "count": 66499,
+        "percent_of_split": 6.3933,
+        "ciw": 0.2275,
+        "description": "Pipe collapse"
+      },
+      "FO": {
+        "count": 5010,
+        "percent_of_split": 0.4817,
+        "ciw": 0.2477,
+        "description": "Foreign object"
+      },
+      "GR": {
+        "count": 53986,
+        "percent_of_split": 5.1903,
+        "ciw": 0.0901,
+        "description": "Sealing ring displacement"
+      },
+      "PH": {
+        "count": 23685,
+        "percent_of_split": 2.2771,
+        "ciw": 0.4167,
+        "description": "Hole in pipe"
+      },
+      "PB": {
+        "count": 6746,
+        "percent_of_split": 0.6486,
+        "ciw": 0.4167,
+        "description": "Broken pipe"
+      },
+      "OS": {
+        "count": 4625,
+        "percent_of_split": 0.4447,
+        "ciw": 0.9009,
+        "description": "Other settled deposits"
+      },
+      "OP": {
+        "count": 5325,
+        "percent_of_split": 0.512,
+        "ciw": 0.3829,
+        "description": "Other pipe damage"
+      },
+      "OK": {
+        "count": 154624,
+        "percent_of_split": 14.8658,
+        "ciw": 0.4396,
+        "description": "Other defects"
+      }
+    }
+  },
+  "val": {
+    "csv": "/nobackup/projects/bddur59/Datasets/Sewer_ML/SewerML_valid.csv",
+    "summary": {
+      "n_images": 130046,
+      "n_with_no_labels": 68681,
+      "n_with_exactly_one_label": 21849,
+      "n_with_two_or_more_labels": 39516,
+      "pct_no_labels": 52.8129,
+      "pct_exactly_one": 16.801,
+      "pct_two_or_more": 30.3862,
+      "mean_labels_per_image": 0.9646,
+      "max_labels_per_image": 7
+    },
+    "per_label": {
+      "RB": {
+        "count": 5538,
+        "percent_of_split": 4.2585,
+        "ciw": 1.0,
+        "description": "Root in pipe"
+      },
+      "OB": {
+        "count": 23624,
+        "percent_of_split": 18.1659,
+        "ciw": 0.5518,
+        "description": "Obstacle"
+      },
+      "PF": {
+        "count": 2021,
+        "percent_of_split": 1.5541,
+        "ciw": 0.2896,
+        "description": "Pipe fracture / crack"
+      },
+      "DE": {
+        "count": 2038,
+        "percent_of_split": 1.5671,
+        "ciw": 0.1622,
+        "description": "Deformation"
+      },
+      "FS": {
+        "count": 36218,
+        "percent_of_split": 27.8501,
+        "ciw": 0.6419,
+        "description": "Settled deposits"
+      },
+      "IS": {
+        "count": 881,
+        "percent_of_split": 0.6775,
+        "ciw": 0.1847,
+        "description": "Intruding sealing material"
+      },
+      "RO": {
+        "count": 2917,
+        "percent_of_split": 2.2431,
+        "ciw": 0.3559,
+        "description": "Surface damage"
+      },
+      "IN": {
+        "count": 2812,
+        "percent_of_split": 2.1623,
+        "ciw": 0.3131,
+        "description": "Infiltration"
+      },
+      "AF": {
+        "count": 9059,
+        "percent_of_split": 6.966,
+        "ciw": 0.0811,
+        "description": "Attached deposits"
+      },
+      "BE": {
+        "count": 7929,
+        "percent_of_split": 6.0971,
+        "ciw": 0.2275,
+        "description": "Pipe collapse"
+      },
+      "FO": {
+        "count": 597,
+        "percent_of_split": 0.4591,
+        "ciw": 0.2477,
+        "description": "Foreign object"
+      },
+      "GR": {
+        "count": 6889,
+        "percent_of_split": 5.2974,
+        "ciw": 0.0901,
+        "description": "Sealing ring displacement"
+      },
+      "PH": {
+        "count": 3432,
+        "percent_of_split": 2.6391,
+        "ciw": 0.4167,
+        "description": "Hole in pipe"
+      },
+      "PB": {
+        "count": 765,
+        "percent_of_split": 0.5883,
+        "ciw": 0.4167,
+        "description": "Broken pipe"
+      },
+      "OS": {
+        "count": 457,
+        "percent_of_split": 0.3514,
+        "ciw": 0.9009,
+        "description": "Other settled deposits"
+      },
+      "OP": {
+        "count": 612,
+        "percent_of_split": 0.4706,
+        "ciw": 0.3829,
+        "description": "Other pipe damage"
+      },
+      "OK": {
+        "count": 19655,
+        "percent_of_split": 15.1139,
+        "ciw": 0.4396,
+        "description": "Other defects"
+      }
+    }
+  }
+}

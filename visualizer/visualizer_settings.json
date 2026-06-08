@@ -1,0 +1,17 @@
+{
+    "dataset_sizes": {
+        "CrackSeg9k": "7332"
+    },
+    "last_metric": {
+        "CrackSeg9k": "f1"
+    },
+    "full_results": {
+        "CrackSeg9k": {
+            "unet": {
+                "f1": 0.6392053662098524,
+                "dice": 0.477891651127672,
+                "iou": 0.3630287707906302
+            }
+        }
+    }
+}

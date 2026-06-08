@@ -1,0 +1,39 @@
+{
+  "config": {
+    "dataroot": "../../../Datasets/",
+    "scale_size": 224,
+    "batch_size": 32,
+    "workers": 8,
+    "target_class": "OS",
+    "main_arch": "resnet50",
+    "al_cycles": 10,
+    "al_budget": 2000,
+    "candidate_ratio": 0.02,
+    "cold_start_strategy": "clipiqa",
+    "initial_percentage": 0.01,
+    "secondary_strategy": "balanced",
+    "pos_ratio": 0.3,
+    "clipiqa_json_path": "../IQA/clip_iqa_train_all.json",
+    "clipiqa_threshold": 0.5,
+    "oracle_epochs": 15,
+    "initial_epochs": 10,
+    "cycle_epochs": 10,
+    "lr": 0.0001,
+    "weight_decay": 0.0001,
+    "policy_lr": 0.0001,
+    "policy_hidden": 256,
+    "policy_temp_start": 1.0,
+    "policy_temp_end": 0.5,
+    "entropy_beta": 0.001,
+    "seed": 42,
+    "gpu": 3,
+    "results_dir": "./results_rb",
+    "experiment_name": "os_al_clipiqa",
+    "dataset_type": "sewerml"
+  },
+  "history": {
+    "cold_start_strategy": "clipiqa",
+    "cold_start_labeled": 10401,
+    "cold_start_report_path": "./results_rb/05_06/selection_report_clipiqa_os_al_clipiqa_0234.json"
+  }
+}

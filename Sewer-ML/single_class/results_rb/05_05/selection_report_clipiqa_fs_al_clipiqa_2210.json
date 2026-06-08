@@ -1,0 +1,17 @@
+{
+  "config": {
+    "clipiqa_threshold": 0.5,
+    "secondary_strategy": "balanced",
+    "pos_ratio_target": 0.3,
+    "n_initial": 10401,
+    "seed": 42
+  },
+  "summary": {
+    "total": 1040129,
+    "passed_iqa": 38982,
+    "selected": 10401,
+    "positives_in_sel": 314,
+    "pos_rate_in_sel": 0.030189404864916836,
+    "iqa_mean_selected": 0.598110020160675
+  }
+}

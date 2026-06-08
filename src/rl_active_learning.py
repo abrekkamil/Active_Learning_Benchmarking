@@ -118,6 +118,8 @@ class ActiveLearningSystemRL:
         all_samples = [("train", i) for i in train_indices] + \
               [("pool", i) for i in pool_indices]
         
+        self.total_samples = len(all_samples)
+        
         if skip_cold_start:
             # FULL DATASET (upper bound)
             self.labeled_indices = all_samples
@@ -399,7 +401,7 @@ class ActiveLearningSystemRL:
         if getattr(self.config, "dynamic_query_size", False):
 
             budget_ratio = torch.sigmoid(budget_logits)
-            budget_ratio = torch.clamp(budget_ratio, 0.01, 0.02)  # Limit to 1-2% of pool
+            budget_ratio = torch.clamp(budget_ratio, 0.01, 0.15)  # Limit to 1-15% of pool
 
             budget = int(budget_ratio.item() * len(candidate_pool))
             budget = max(1, budget)
@@ -413,7 +415,8 @@ class ActiveLearningSystemRL:
         else:
 
             if self.config.query_size <= 1:
-                budget = int(self.config.query_size * len(candidate_pool))
+#                 budget = int(self.config.query_size * len(candidate_pool))
+                budget = int(self.config.query_size * self.total_samples)
             else:
                 budget = int(self.config.query_size)
 
