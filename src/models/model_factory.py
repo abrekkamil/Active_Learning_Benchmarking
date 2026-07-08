@@ -18,6 +18,7 @@ from .segformer_model import SegFormerModel
 from .maskrcnn_model import MaskRCNNModel
 from .yolo_model import YOLOv8Model
 from .multilabel_model import MultiLabelClassificationModel
+from .convnext_model import ConvNeXtModel
 
 def build_model(model_name: str, num_classes: int, device, config) -> Any:
     """
@@ -76,6 +77,9 @@ def build_model(model_name: str, num_classes: int, device, config) -> Any:
         )
     elif model_name in ("resnet50_multilabel", "multilabel"):
         return MultiLabelClassificationModel(num_classes, device, config)
+    
+    elif model_name == "convnext":
+        return ConvNeXtModel(num_classes, device, config)
     # ------------------------
     # Error
     # ------------------------

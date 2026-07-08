@@ -12,4 +12,5 @@ from .rl_models import PolicyNet
 from .model_factory import build_model
 from .multilabel_model import MultiLabelClassificationModel
 
+from .convnext_model import ConvNeXtModel
 print("Model packages initialized.")

@@ -47,6 +47,12 @@ class ActiveLearningConfig:
     lr_steps: List[int] = field(default_factory=lambda: [30, 50])
 
     unet_norm: str = "bn"        # 👈 NEW (used in UNetModel)
+
+
+    convnext_variant: str = "tiny"  # tiny | small | base | large
+    convnext_decoder_channels: int = 256
+    convnext_dropout: float = 0.1
+    ignore_index: int = -100
     # =====================
     # Multi-label Classification (OPTIONAL)
     # =====================
