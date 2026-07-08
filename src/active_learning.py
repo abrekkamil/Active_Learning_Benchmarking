@@ -238,15 +238,10 @@ class ActiveLearningSystem:
             current_score = self.get_primary_metric(self.config.task, eval_metrics)
             if current_score > self.best_score:
                 self.best_score = current_score
-                save_checkpoint(
-                    model=self.model,
-                    cycle=self.cycle,
-                    epoch=epoch,
-                    score=current_score,
-                    is_best=True,
-                    config=self.config
-                )
+                self._save_ckpt("best", epoch, current_score)   # best of the run
 
+            last_score = current_score
+            
         self.cycle += 1
         return cycle_metrics
     
@@ -440,7 +435,23 @@ class ActiveLearningSystem:
 
         with open(self.results_path, "w") as f:
             json.dump(results, f, indent=2)
-
+            
+    def _save_ckpt(self, tag, epoch, score):
+            """Save a state-dict checkpoint into this run's folder."""
+            # unwrap if self.model is a wrapper around the torch module
+            net = getattr(self.model, "model", self.model)
+            payload = {
+                "state_dict": net.state_dict(),
+                "cycle": self.cycle,
+                "epoch": epoch,
+                "score": float(score),
+                "labeled_count": len(self.labeled_indices),
+                "config": self._config_to_dict(),
+            }
+            path = os.path.join(self.run_ckpt_dir, f"{tag}.pth")
+            torch.save(payload, path)
+            return path
+        
     def _init_results_path(self):
         date_folder = datetime.datetime.now().strftime("%m_%d")
         results_dir = os.path.join(self.config.results_dir, date_folder)
@@ -458,6 +469,16 @@ class ActiveLearningSystem:
         )
 
         self.logger.info(f"the results will be saved in: {self.results_path}")
+        
+        self.run_ckpt_dir = os.path.join(
+            self.config.checkpoint_dir,
+            date_folder,
+            f"{self.config.experiment_name}_"
+            f"{self.config.cold_start_strategy}_"
+            f"{self.config.query_strategy}_{time_stamp}"
+        )
+        os.makedirs(self.run_ckpt_dir, exist_ok=True)
+        self.logger.info(f"checkpoints will be saved in: {self.run_ckpt_dir}")
 
     def _config_to_dict(self):
         # works for argparse.Namespace or simple config objects

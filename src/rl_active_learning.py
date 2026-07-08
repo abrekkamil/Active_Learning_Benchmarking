@@ -56,6 +56,7 @@ class ActiveLearningSystemRL:
             "cuda" if torch.cuda.is_available() and config.use_cuda else "cpu"
         )
         self.prev_score = None
+        self.best_score = 0.0
 
         self.logger = setup_logging(f"{config.experiment_name}_RL")
         self._init_results_path()
@@ -310,15 +311,16 @@ class ActiveLearningSystemRL:
             # SEMANTIC SEGMENTATION
             # =========================
             else:
-                if isinstance(outputs, dict):
-                    logits = outputs["out"]
-                elif hasattr(outputs, "logits"):
+                if hasattr(outputs, "logits"):
                     logits = outputs.logits
+                elif isinstance(outputs, dict) and "out" in outputs:
+                    logits = outputs["out"]
                 elif isinstance(outputs, torch.Tensor):
                     logits = outputs
                 else:
                     raise ValueError(f"Unknown model output format: {type(outputs)}")
-                
+                if logits.shape[-2:] != images.shape[-2:]:
+                    logits = F.interpolate(logits, size=images.shape[-2:], mode="bilinear", align_corners=False)
                 probs = F.softmax(logits, dim=1)
 
                 entropy = -(probs * torch.log(probs + 1e-8)).sum(dim=1).mean(dim=[1,2])
@@ -503,7 +505,8 @@ class ActiveLearningSystemRL:
                 self.dataset_train,
                 self.dataset_pool,
                 self.labeled_indices
-            )
+            )            
+
         for ep in range(self.config.epochs_per_cycle):
             epoch_start = time.time()
             train_metrics = self.main_model.train_epoch(labeled_dataset, ep, self.config.epochs_per_cycle)
@@ -518,7 +521,12 @@ class ActiveLearningSystemRL:
             )
 
             self.save_results()
-
+            current_score = self.get_primary_metric(self.config.task, eval_metrics)
+            if current_score > self.best_score:
+                self.best_score = current_score
+                self._save_ckpt("best", ep, current_score)
+                
+                
         score = self.get_primary_metric(self.config.task, eval_metrics)
         
         if self.prev_score is None:
@@ -553,6 +561,7 @@ class ActiveLearningSystemRL:
         self.logger.info("Reward: {:.4f} | Baseline: {:.4f} | Advantage: {:.4f}".format(
             reward, self.reward_baseline, advantage))
         
+                    
         self.cycle += 1
 
     # ==========================================================
@@ -733,6 +742,21 @@ class ActiveLearningSystemRL:
 
         with open(self.results_path, "w") as f:
             json.dump(results, f, indent=2)
+            
+    def _save_ckpt(self, tag, epoch, score):
+            """Save a state-dict checkpoint of the MAIN model into this run's folder."""
+            net = getattr(self.main_model, "model", self.main_model)
+            payload = {
+                "state_dict": net.state_dict(),
+                "cycle": self.cycle,
+                "epoch": epoch,
+                "score": float(score),
+                "labeled_count": len(self.labeled_indices),
+                "config": self._config_to_dict(),
+            }
+            path = os.path.join(self.run_ckpt_dir, f"{tag}.pth")
+            torch.save(payload, path)
+            return path
 
     def _init_results_path(self):
         date_folder = datetime.datetime.now().strftime("%m_%d")
@@ -750,6 +774,18 @@ class ActiveLearningSystemRL:
             f"{time_stamp}.json"
         )
         self.logger.info(f"the results will be saved in: {self.results_path}")
+        
+        # Per-run checkpoint directory, mirroring the results filename
+        self.run_ckpt_dir = os.path.join(
+            self.config.checkpoint_dir,
+            date_folder,
+            f"{self.config.experiment_name}_"
+            f"{self.config.cold_start_strategy}_"
+            f"{self.config.query_strategy}_{time_stamp}"
+        )
+        os.makedirs(self.run_ckpt_dir, exist_ok=True)
+        self.logger.info(f"checkpoints will be saved in: {self.run_ckpt_dir}")
+        
     def _config_to_dict(self):
         # works for argparse.Namespace or simple config objects
         return vars(self.config)
