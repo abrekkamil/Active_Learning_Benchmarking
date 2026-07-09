@@ -272,8 +272,23 @@ class ActiveLearningSystem:
             uncertainties=uncertainties,
             dataset=unlabeled_dataset,
             indices=local_indices,
-            query_size=query_size
+            query_size=query_size,
+            model=self.model,
+            device=self.device,
+            cycle=self.cycle,
+            history=self.history,
         )
+        if hasattr(self.query_strategy, "last_damage_debug"):
+            self.history.setdefault("damage_adaptive_debug", []).append(
+                self.query_strategy.last_damage_debug
+            )
+
+            self.logger.info(
+                f"Damage-adaptive weights: "
+                f"{self.query_strategy.last_damage_debug.get('weights', {})}; "
+                f"MMR lambda: "
+                f"{self.query_strategy.last_damage_debug.get('mmr_lambda', 0):.3f}"
+            )
         self.logger.info(f"GPU memory allocated: {torch.cuda.memory_allocated()/1e9:.2f} GB after selection")
         selected_global_indices = [self.unlabeled_indices[i] for i in selected_indices]
         selected_samples_info = []
@@ -366,15 +381,20 @@ class ActiveLearningSystem:
             dice = eval_metrics.get("dice", 0)
             f1 = eval_metrics.get("f1", 0)
             miou = eval_metrics.get("mean_iou", 0)
+            precision = eval_metrics.get("precision", 0)
+            recall = eval_metrics.get("recall", 0)
 
             self.history.setdefault("val_dice", []).append(dice)
             self.history.setdefault("val_F1", []).append(f1)
             self.history.setdefault("val_mean_iou", []).append(miou)
-
+            self.history.setdefault("val_precision", []).append(precision)
+            self.history.setdefault("val_recall", []).append(recall)
             self.logger.info(
                 f"Epoch {epoch+1} | "
                 f"Loss: {train_metrics.get('train_loss',0):.4f} | "
                 f"F1: {f1:.4f} | "
+                f"P: {precision:.4f} | "
+                f"R: {recall:.4f} | "
                 f"Dice: {dice:.4f} | "
                 f"Mean IoU: {miou:.4f} | "
                 f"Labeled: {len(self.labeled_indices)}"

@@ -27,9 +27,18 @@ class ActiveLearningConfig:
     epochs_per_cycle: int = 15
     initial_training_epoch: int = 3
 
-    skip_cold_start: bool = False   # 👈 NEW
+    skip_cold_start: bool = False   
     cold_start_strategy: str = "random"
     query_strategy: str = "uncertainty"
+    # =====================
+    # Damage-Aware Adaptive Batch Acquisition
+    # Quick DeepCrack test
+    # =====================
+    da_candidate_pool: int = 256
+    da_score_batch: int = 8
+    da_topk_fraction: float = 0.10
+    da_prefilter_uncertain: bool = True
+    da_mmr_lambda: float = 0.45
     # =====================
     # Task / Model
     # =====================
@@ -47,8 +56,7 @@ class ActiveLearningConfig:
     weight_decay: float = 1e-4
     lr_steps: List[int] = field(default_factory=lambda: [30, 50])
 
-    unet_norm: str = "bn"        # 👈 NEW (used in UNetModel)
-
+    unet_norm: str = "bn"        
 
     convnext_variant: str = "tiny"  # tiny | small | base | large
     convnext_decoder_channels: int = 256
@@ -66,7 +74,7 @@ class ActiveLearningConfig:
     # =====================
     # RL Active Learning (OPTIONAL)
     # =====================
-    use_rl: bool = False         # 👈 switch
+    use_rl: bool = False         
     policy_lr: float = 1e-4
     policy_hidden: int = 256
     policy_temp: float = 1.0
