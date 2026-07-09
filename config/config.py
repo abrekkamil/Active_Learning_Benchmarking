@@ -53,9 +53,6 @@ class ActiveLearningConfig:
     convnext_variant: str = "tiny"  # tiny | small | base | large
     convnext_decoder_channels: int = 256
     convnext_dropout: float = 0.1
-    convnext_variant: str = "tiny"  # tiny | small | base | large
-    convnext_decoder_channels: int = 256   # (kept for back-compat; unused by FPN model)
-    convnext_dropout: float = 0.1
     convnext_fpn_channels: int = 128
     convnext_lr: float = 6e-5              # AdamW backbone lr; do NOT reuse config.lr
     convnext_head_lr_mult: float = 10.0    # decoder lr = convnext_lr * this
