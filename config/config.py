@@ -1,4 +1,5 @@
 import yaml
+import dataclasses
 from dataclasses import dataclass, field
 from typing import List, Optional, Dict, Any
 
@@ -52,6 +53,13 @@ class ActiveLearningConfig:
     convnext_variant: str = "tiny"  # tiny | small | base | large
     convnext_decoder_channels: int = 256
     convnext_dropout: float = 0.1
+    convnext_variant: str = "tiny"  # tiny | small | base | large
+    convnext_decoder_channels: int = 256   # (kept for back-compat; unused by FPN model)
+    convnext_dropout: float = 0.1
+    convnext_fpn_channels: int = 128
+    convnext_lr: float = 6e-5              # AdamW backbone lr; do NOT reuse config.lr
+    convnext_head_lr_mult: float = 10.0    # decoder lr = convnext_lr * this
+    crack_class_weight: float = 0.0        # 0 = off; e.g. 5.0 to upweight crack class
     ignore_index: int = -100
     # =====================
     # Multi-label Classification (OPTIONAL)
@@ -103,8 +111,12 @@ class ActiveLearningConfig:
     @classmethod
     def from_yaml(cls, yaml_path: str):
         with open(yaml_path, "r") as f:
-            config_dict = yaml.safe_load(f)
-        return cls(**config_dict)
+            config_dict = yaml.safe_load(f) or {}
+        valid = {f.name for f in dataclasses.fields(cls)}
+        unknown = set(config_dict) - valid
+        if unknown:
+            print(f"[config] WARNING ignoring unknown keys: {sorted(unknown)}")
+        return cls(**{k: v for k, v in config_dict.items() if k in valid})
 
     def to_dict(self) -> Dict[str, Any]:
         return {k: v for k, v in self.__dict__.items() if not k.startswith("_")}
