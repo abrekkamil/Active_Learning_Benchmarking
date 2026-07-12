@@ -8,7 +8,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
-from transformers import SegformerForSemanticSegmentation
+from transformers import SegformerForSemanticSegmentation, SegformerConfig
 
 from sklearn.metrics import (
     precision_score,
@@ -75,12 +75,28 @@ class SegFormerModel:
             "segformer_ckpt",
             "nvidia/segformer-b0-finetuned-ade-512-512",
         )
+        use_pretrained = getattr(config, "pretrained", True)
 
-        base_model = SegformerForSemanticSegmentation.from_pretrained(
-            ckpt,
-            num_labels=num_classes,
-            ignore_mismatched_sizes=True,
-        )
+        if isinstance(use_pretrained, str):
+            use_pretrained = use_pretrained.lower() in ("true", "1", "yes")
+
+        if use_pretrained:
+            print(f"Loading pretrained SegFormer: {ckpt}")
+
+            base_model = SegformerForSemanticSegmentation.from_pretrained(
+                ckpt,
+                num_labels=num_classes,
+                ignore_mismatched_sizes=True,
+            )
+        else:
+            print(f"Creating SegFormer from scratch using configuration: {ckpt}")
+
+            hf_config = SegformerConfig.from_pretrained(
+                ckpt,
+                num_labels=num_classes,
+            )
+
+            base_model = SegformerForSemanticSegmentation(hf_config)
 
         # wrap model so RL can access bottleneck features
         self.model = SegFormerWithBottleneck(base_model).to(device)
