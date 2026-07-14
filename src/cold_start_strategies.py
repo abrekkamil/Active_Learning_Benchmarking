@@ -1,12 +1,13 @@
 import torch
 import numpy as np
+import hashlib, os
 from typing import List, Optional
 import torchvision.transforms as transforms
 import torchvision.models as models
 from sklearn.cluster import MiniBatchKMeans
 from torch.utils.data import DataLoader, Subset
 import logging
-
+import time
 import cv2
 import torch.nn.functional as F
 
@@ -42,12 +43,22 @@ class ColdStartStrategies:
     def random_sampling(self, all_indices, n_samples):
         """Random sampling (baseline)."""
         return torch.randperm(len(all_indices))[:n_samples].tolist()
+    def _feature_cache_path(self, tag, indices):
+        key = f"{self.config.dataset}_{self.config.img_size}_{tag}_{len(indices)}"
+        h = hashlib.md5(str(indices).encode()).hexdigest()[:8]
+        cache_dir = os.path.join(self.config.results_dir, "feature_cache")
+        os.makedirs(cache_dir, exist_ok=True)
+        return os.path.join(cache_dir, f"{key}_{h}.npy")
     
-    def _extract_features_batched(self, indices, model, batch_size=64, num_workers=0):
+    def _extract_features_batched(self, indices, model, tag, batch_size=64, num_workers=0):
+        path = self._feature_cache_path(tag, indices)
+        if os.path.exists(path):
+            self.logger.info(f"Loading cached features from {path}")
+            return np.load(path)
+
         subset = Subset(self.dataset_train, indices)
         loader = DataLoader(subset, batch_size=batch_size, shuffle=False,
                             num_workers=num_workers, pin_memory=True)
-
         normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
                                         std=[0.229, 0.224, 0.225])
         feats = []
@@ -60,11 +71,14 @@ class ColdStartStrategies:
                 images = F.interpolate(images, size=(224, 224),
                                     mode='bilinear', align_corners=False)
                 images = normalize(images).to(self.device, non_blocking=True)
-                f = model(images).flatten(1).cpu().numpy()
-                feats.append(f)
+                feats.append(model(images).flatten(1).cpu().numpy())
                 if i % 20 == 0:
                     self.logger.info(f"Feature extraction: batch {i}/{len(loader)}")
-        return np.concatenate(feats, 0)
+
+        out = np.concatenate(feats, 0)
+        np.save(path, out)
+        self.logger.info(f"Cached features to {path}  shape={out.shape}")
+        return out
 
 
     def _extract_features(self, indices):
@@ -73,7 +87,7 @@ class ColdStartStrategies:
         model = models.resnet18(weights=ResNet18_Weights.IMAGENET1K_V1)
         model = torch.nn.Sequential(*(list(model.children())[:-1]))
         model.eval().to(self.device)
-        return self._extract_features_batched(indices, model)
+        return self._extract_features_batched(indices, model, tag="resnet18_imagenet")
 
 
     def _extract_self_supervised_features(self, indices):
@@ -89,7 +103,7 @@ class ColdStartStrategies:
 
         model = torch.nn.Sequential(*(list(model.children())[:-1]))
         model.eval().to(self.device)
-        return self._extract_features_batched(indices, model)
+        return self._extract_features_batched(indices, model, tag="resnet18_swsl")
 
 
     def simple_diversity_sampling(self, all_indices, n_samples):
@@ -116,26 +130,47 @@ class ColdStartStrategies:
 
 
     def _cluster_and_select(self, features, all_indices, k):
-        """MiniBatchKMeans then pick the medoid-ish member of each cluster."""
-        kmeans = MiniBatchKMeans(n_clusters=k, random_state=42,
-                                batch_size=max(4096, 4 * k), n_init=3)
-        cluster_labels = kmeans.fit_predict(features)
+        """PCA -> MiniBatchKMeans -> pick the member closest to each centroid."""
+        from sklearn.decomposition import PCA
+
+        X = np.asarray(features, dtype=np.float32)
+
+        # 512-D -> 64-D. Cuts the distance computation ~8x with no meaningful
+        # loss in cluster structure.
+        if X.shape[1] > 64:
+            t = time.time()
+            X = PCA(n_components=64, random_state=42).fit_transform(X).astype(np.float32)
+            self.logger.info(f"PCA -> {X.shape} in {time.time()-t:.1f}s")
+
+        t = time.time()
+        kmeans = MiniBatchKMeans(
+            n_clusters=k,
+            random_state=42,
+            batch_size=1024,      # was max(4096, 4*k) -> larger than the pool
+            n_init=3,
+            max_iter=100,
+            max_no_improvement=10,
+            reassignment_ratio=0.01,
+        )
+        labels = kmeans.fit_predict(X)
+        self.logger.info(f"MiniBatchKMeans k={k} in {time.time()-t:.1f}s")
 
         selected = []
         for cid in range(k):
-            member_pos = np.flatnonzero(cluster_labels == cid)
+            member_pos = np.flatnonzero(labels == cid)
             if member_pos.size == 0:
                 continue
-            d = np.linalg.norm(features[member_pos] - kmeans.cluster_centers_[cid], axis=1)
+            d = np.linalg.norm(X[member_pos] - kmeans.cluster_centers_[cid], axis=1)
             selected.append(all_indices[member_pos[int(np.argmin(d))]])
 
-        # backfill if some clusters were empty
         if len(selected) < k:
-            pool = [i for i in all_indices if i not in set(selected)]
+            chosen = set(selected)
+            pool = [i for i in all_indices if i not in chosen]
             extra = torch.randperm(len(pool))[:k - len(selected)].tolist()
             selected.extend([pool[i] for i in extra])
+
+        self.logger.info(f"Selected {len(selected)} samples from {k} clusters")
         return selected[:k]
-    
     
     def entropy_based_uncertainty(self, all_indices, n_samples):
         """Uncertainty sampling using image entropy."""
