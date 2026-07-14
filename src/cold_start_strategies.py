@@ -43,10 +43,11 @@ class ColdStartStrategies:
     def random_sampling(self, all_indices, n_samples):
         """Random sampling (baseline)."""
         return torch.randperm(len(all_indices))[:n_samples].tolist()
+    
     def _feature_cache_path(self, tag, indices):
         key = f"{self.config.dataset}_{self.config.img_size}_{tag}_{len(indices)}"
         h = hashlib.md5(str(indices).encode()).hexdigest()[:8]
-        cache_dir = os.path.join(self.config.results_dir, "feature_cache")
+        cache_dir = os.path.join(self.config.data_dir, "feature_cache")
         os.makedirs(cache_dir, exist_ok=True)
         return os.path.join(cache_dir, f"{key}_{h}.npy")
     
@@ -135,8 +136,6 @@ class ColdStartStrategies:
 
         X = np.asarray(features, dtype=np.float32)
 
-        # 512-D -> 64-D. Cuts the distance computation ~8x with no meaningful
-        # loss in cluster structure.
         if X.shape[1] > 64:
             t = time.time()
             X = PCA(n_components=64, random_state=42).fit_transform(X).astype(np.float32)
@@ -146,7 +145,7 @@ class ColdStartStrategies:
         kmeans = MiniBatchKMeans(
             n_clusters=k,
             random_state=42,
-            batch_size=1024,      # was max(4096, 4*k) -> larger than the pool
+            batch_size=1024,
             n_init=3,
             max_iter=100,
             max_no_improvement=10,
