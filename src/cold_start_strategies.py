@@ -43,7 +43,7 @@ class ColdStartStrategies:
         """Random sampling (baseline)."""
         return torch.randperm(len(all_indices))[:n_samples].tolist()
     
-    def _extract_features_batched(self, indices, model, batch_size=64, num_workers=4):
+    def _extract_features_batched(self, indices, model, batch_size=64, num_workers=0):
         subset = Subset(self.dataset_train, indices)
         loader = DataLoader(subset, batch_size=batch_size, shuffle=False,
                             num_workers=num_workers, pin_memory=True)
