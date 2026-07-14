@@ -152,10 +152,11 @@ class ColdStartStrategies:
             n_clusters=k,
             random_state=42,
             batch_size=1024,
-            n_init=3,
+            n_init=1,
             max_iter=100,
             max_no_improvement=10,
             reassignment_ratio=0.01,
+            init='random',
         )
         labels = kmeans.fit_predict(X)
         self.logger.info(f"MiniBatchKMeans k={k} in {time.time()-t:.1f}s")
