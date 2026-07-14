@@ -138,9 +138,14 @@ class ColdStartStrategies:
         self.logger.info(f"Clustering {X.shape[0]} samples with {X.shape[1]} features into {k} clusters")
         if X.shape[1] > 64:
             t = time.time()
-            X = PCA(n_components=64, svd_solver='randomized',
-                    random_state=42).fit_transform(X).astype(np.float32)
-            self.logger.info(f"PCA -> {X.shape} in {time.time()-t:.1f}s")
+            Xt = torch.from_numpy(X).to(self.device)
+            Xt = Xt - Xt.mean(dim=0, keepdim=True)
+            # economy SVD on GPU
+            U, S, V = torch.pca_lowrank(Xt, q=64, center=False, niter=4)
+            X = (Xt @ V[:, :64]).cpu().numpy().astype(np.float32)
+            del Xt, U, S, V
+            torch.cuda.empty_cache()
+            self.logger.info(f"PCA (GPU) -> {X.shape} in {time.time()-t:.1f}s")
 
         t = time.time()
         kmeans = MiniBatchKMeans(
