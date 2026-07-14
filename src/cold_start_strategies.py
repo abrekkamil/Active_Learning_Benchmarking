@@ -135,7 +135,7 @@ class ColdStartStrategies:
         from sklearn.decomposition import PCA
 
         X = np.asarray(features, dtype=np.float32)
-
+        self.logger.info(f"Clustering {X.shape[0]} samples with {X.shape[1]} features into {k} clusters")
         if X.shape[1] > 64:
             t = time.time()
             X = PCA(n_components=64, svd_solver='randomized',
