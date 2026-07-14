@@ -138,7 +138,8 @@ class ColdStartStrategies:
 
         if X.shape[1] > 64:
             t = time.time()
-            X = PCA(n_components=64, random_state=42).fit_transform(X).astype(np.float32)
+            X = PCA(n_components=64, svd_solver='randomized',
+                    random_state=42).fit_transform(X).astype(np.float32)
             self.logger.info(f"PCA -> {X.shape} in {time.time()-t:.1f}s")
 
         t = time.time()
