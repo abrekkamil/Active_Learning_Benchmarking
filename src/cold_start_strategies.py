@@ -129,18 +129,50 @@ class ColdStartStrategies:
         features = self._extract_features(all_indices)
         return self._cluster_and_select(features, all_indices, n_samples)
 
+    def _kmeans_gpu(self, X, k, iters=30, seed=42):
+        """Lloyd's k-means on GPU. X: (n, d) float32 numpy."""
+        g = torch.Generator(device='cpu').manual_seed(seed)
+        Xt = torch.from_numpy(X).to(self.device)
+        n = Xt.shape[0]
 
+        # random init from the data
+        perm = torch.randperm(n, generator=g)[:k]
+        C = Xt[perm.to(self.device)].clone()
+
+        for it in range(iters):
+            # (n, k) squared distances via the expansion, chunked to bound memory
+            labels = torch.empty(n, dtype=torch.long, device=self.device)
+            for s in range(0, n, 2048):
+                e = min(s + 2048, n)
+                d = torch.cdist(Xt[s:e], C)          # (chunk, k)
+                labels[s:e] = d.argmin(dim=1)
+
+            newC = torch.zeros_like(C)
+            counts = torch.zeros(k, device=self.device)
+            newC.index_add_(0, labels, Xt)
+            counts.index_add_(0, labels, torch.ones(n, device=self.device))
+            empty = counts == 0
+            counts = counts.clamp(min=1).unsqueeze(1)
+            newC = newC / counts
+            newC[empty] = C[empty]                   # keep empty centroids put
+
+            shift = (newC - C).norm(dim=1).max().item()
+            C = newC
+            if shift < 1e-4:
+                break
+
+        return labels.cpu().numpy(), C.cpu().numpy()
+    
     def _cluster_and_select(self, features, all_indices, k):
-        """PCA -> MiniBatchKMeans -> pick the member closest to each centroid."""
-        from sklearn.decomposition import PCA
-
+        """GPU PCA -> GPU k-means -> pick the member closest to each centroid."""
         X = np.asarray(features, dtype=np.float32)
-        self.logger.info(f"Clustering {X.shape[0]} samples with {X.shape[1]} features into {k} clusters")
+        self.logger.info(
+            f"Clustering {X.shape[0]} samples with {X.shape[1]} features into {k} clusters")
+
         if X.shape[1] > 64:
             t = time.time()
             Xt = torch.from_numpy(X).to(self.device)
             Xt = Xt - Xt.mean(dim=0, keepdim=True)
-            # economy SVD on GPU
             U, S, V = torch.pca_lowrank(Xt, q=64, center=False, niter=4)
             X = (Xt @ V[:, :64]).cpu().numpy().astype(np.float32)
             del Xt, U, S, V
@@ -148,31 +180,23 @@ class ColdStartStrategies:
             self.logger.info(f"PCA (GPU) -> {X.shape} in {time.time()-t:.1f}s")
 
         t = time.time()
-        kmeans = MiniBatchKMeans(
-            n_clusters=k,
-            random_state=42,
-            batch_size=1024,
-            n_init=1,
-            max_iter=100,
-            max_no_improvement=10,
-            reassignment_ratio=0.01,
-            init='random',
-        )
-        labels = kmeans.fit_predict(X)
-        self.logger.info(f"MiniBatchKMeans k={k} in {time.time()-t:.1f}s")
+        labels, centers = self._kmeans_gpu(X, k)
+        self.logger.info(f"KMeans (GPU) k={k} in {time.time()-t:.1f}s")
 
         selected = []
         for cid in range(k):
             member_pos = np.flatnonzero(labels == cid)
             if member_pos.size == 0:
                 continue
-            d = np.linalg.norm(X[member_pos] - kmeans.cluster_centers_[cid], axis=1)
+            d = np.linalg.norm(X[member_pos] - centers[cid], axis=1)
             selected.append(all_indices[member_pos[int(np.argmin(d))]])
 
-        if len(selected) < k:
+        n_empty = k - len(selected)
+        if n_empty > 0:
+            self.logger.info(f"{n_empty} empty clusters, backfilling randomly")
             chosen = set(selected)
             pool = [i for i in all_indices if i not in chosen]
-            extra = torch.randperm(len(pool))[:k - len(selected)].tolist()
+            extra = torch.randperm(len(pool))[:n_empty].tolist()
             selected.extend([pool[i] for i in extra])
 
         self.logger.info(f"Selected {len(selected)} samples from {k} clusters")
