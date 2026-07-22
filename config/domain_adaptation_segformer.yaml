@@ -1,0 +1,80 @@
+experiment_name: da_segformer_supervisely_views_5pct_seed42
+
+# -------------------------------------------------------------------
+# Dataset paths
+# -------------------------------------------------------------------
+
+supervisely_manifest: /nobackup/projects/bddur59/Datasets/supervisely_synthetic_cracks/converted/supervisely_geometry_manifest.csv
+
+roboflow_source_root: /nobackup/projects/bddur59/Datasets/crack_synthetic/Crack_Synthetic_Semantic
+
+target_root: /nobackup/projects/bddur59/Datasets/crackseg9k_disk
+
+# Available:
+# none
+# roboflow
+# supervisely_raw
+# supervisely_views
+source_condition: supervisely_views
+
+# Version 1 currently supports target_only.
+adaptation_mode: target_only
+
+# -------------------------------------------------------------------
+# Model
+# -------------------------------------------------------------------
+
+model_checkpoint: nvidia/segformer-b0-finetuned-ade-512-512
+img_size: 256
+num_classes: 2
+
+# -------------------------------------------------------------------
+# Source pretraining
+# -------------------------------------------------------------------
+
+# Fixed optimiser steps make source conditions comparable even when
+# their dataset sizes differ.
+source_steps: 5000
+source_eval_every_steps: 500
+
+# -------------------------------------------------------------------
+# Target adaptation
+# -------------------------------------------------------------------
+
+adaptation_epochs: 15
+
+batch_size: 8
+eval_batch_size: 4
+
+learning_rate: 0.00006
+weight_decay: 0.01
+max_grad_norm: 1.0
+amp: true
+
+# -------------------------------------------------------------------
+# Dataset splits and target-label budget
+# -------------------------------------------------------------------
+
+# Supervisely is divided by independent geometry ID.
+source_val_fraction: 0.10
+
+# This validation set is taken from CrackSeg9k train.
+# CrackSeg9k test remains untouched until final evaluation.
+target_val_fraction: 0.10
+
+# Percentage of the remaining target training pool used for adaptation.
+initial_target_fraction: 0.05
+
+# -------------------------------------------------------------------
+# Reproducibility and runtime
+# -------------------------------------------------------------------
+
+seed: 42
+num_workers: 4
+use_cuda: true
+
+# -------------------------------------------------------------------
+# Outputs
+# -------------------------------------------------------------------
+
+output_dir: results/domain_adaptation
