@@ -65,6 +65,7 @@ class ActiveLearningSystemRL:
         # --------------------
         self.dataset_train = load_dataset(config, split="train")
         self.dataset_val   = load_dataset(config, split="val")
+        self.dataset_test  = load_dataset(config, split="test")
         self.dataset_pool = None
         if config.pool:
             self.dataset_pool = load_dataset(config, split="pool")
@@ -684,6 +685,26 @@ class ActiveLearningSystemRL:
         system_time = str(datetime.datetime.now() - self.system_start_time)
         self.logger.info(f"Total system time: {system_time}")
         self.history["system_time"] = system_time
+        try:
+            self._load_ckpt("best")
+            self.logger.info("Loaded best-on-val checkpoint for final test evaluation.")
+        except Exception as e:
+            self.logger.info(f"No best checkpoint to load ({e}); "
+                             f"evaluating current model on test.")
+
+        test_metrics = self.main_model.evaluate(self.dataset_test)
+        self.history["final_test_metrics"] = test_metrics
+        for k, v in test_metrics.items():
+            if isinstance(v, (int, float)):
+                self.history.setdefault(f"final_test_{k}", []).append(float(v))
+        self.logger.info(
+            "FINAL TEST | F1 {:.4f} | dice {:.4f} | mIoU {:.4f}".format(
+                float(test_metrics.get("f1", 0.0)),
+                float(test_metrics.get("dice", 0.0)),
+                float(test_metrics.get("mean_iou", 0.0)),
+            )
+        )
+
         self.save_results()
         return self.history
 
