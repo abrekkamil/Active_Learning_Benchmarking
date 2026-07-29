@@ -52,6 +52,9 @@ class ActiveLearningConfig:
     # Task / Model
     # =====================
     pool: bool = False
+    val_source: str = "train"
+    val_fraction: float = 0.2
+    val_seed: int = 12345
     # =====================
     # Task / Model
     # =====================
