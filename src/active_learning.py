@@ -58,6 +58,7 @@ class ActiveLearningSystem:
         self.num_classes = config.num_classes
         self.dataset_train = load_dataset(config, split="train")
         self.dataset_val   = load_dataset(config, split="val")
+        self.dataset_test  = load_dataset(config, split="test")
         self.dataset_pool = None
         if self.config.pool:
             self.dataset_pool  = load_dataset(config, split="pool")
@@ -354,11 +355,31 @@ class ActiveLearningSystem:
         
         self.logger.info("Active learning completed!")
         run_time = str(datetime.datetime.now() - run_start_time)
-        self.logger.info(f"RL Active Learning completed in {run_time}")
+        self.logger.info(f"Active Learning completed in {run_time}")
         self.history["run_time"] = run_time
         system_time = str(datetime.datetime.now() - self.system_start_time)
         self.logger.info(f"Total system time: {system_time}")
         self.history["system_time"] = system_time
+        # Leakage-safe final test evaluation (mirror of the RL class).
+        # dataset_test is never used for selection or model choice.
+        try:
+            self._load_ckpt("best")
+            self.logger.info("Loaded best-on-val checkpoint for final test evaluation.")
+        except Exception as e:
+            self.logger.info(f"No best checkpoint to load ({e}); "
+                             f"evaluating current model on test.")
+        test_metrics = self.model.evaluate(self.dataset_test)
+        self.history["final_test_metrics"] = test_metrics
+        for k, v in test_metrics.items():
+            if isinstance(v, (int, float)):
+                self.history.setdefault(f"final_test_{k}", []).append(float(v))
+        self.logger.info(
+            "FINAL TEST | F1 {:.4f} | dice {:.4f} | mIoU {:.4f}".format(
+                float(test_metrics.get("f1", 0.0)),
+                float(test_metrics.get("dice", 0.0)),
+                float(test_metrics.get("mean_iou", 0.0)),
+            )
+        )
         self.save_results()
         return all_metrics
     
@@ -471,7 +492,19 @@ class ActiveLearningSystem:
             path = os.path.join(self.run_ckpt_dir, f"{tag}.pth")
             torch.save(payload, path)
             return path
-        
+    def _load_ckpt(self, tag):
+        """Load a state-dict checkpoint saved by _save_ckpt into self.model."""
+        path = os.path.join(self.run_ckpt_dir, f"{tag}.pth")
+        if not os.path.exists(path):
+            raise FileNotFoundError(f"No checkpoint at {path}")
+        net = getattr(self.model, "model", self.model)
+        payload = torch.load(path, map_location=self.device)
+        net.load_state_dict(payload["state_dict"])
+        self.logger.info(
+            f"Loaded checkpoint '{tag}' (cycle {payload.get('cycle')}, "
+            f"epoch {payload.get('epoch')}, score {payload.get('score')})"
+        )
+        return payload
     def _init_results_path(self):
         date_folder = datetime.datetime.now().strftime("%m_%d")
         results_dir = os.path.join(self.config.results_dir, date_folder)

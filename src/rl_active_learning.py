@@ -858,7 +858,20 @@ class ActiveLearningSystemRL:
             path = os.path.join(self.run_ckpt_dir, f"{tag}.pth")
             torch.save(payload, path)
             return path
-
+    def _load_ckpt(self, tag):
+        """Load a state-dict checkpoint saved by _save_ckpt into self.main_model."""
+        path = os.path.join(self.run_ckpt_dir, f"{tag}.pth")
+        if not os.path.exists(path):
+            raise FileNotFoundError(f"No checkpoint at {path}")
+        net = getattr(self.main_model, "model", self.main_model)
+        payload = torch.load(path, map_location=self.device)
+        net.load_state_dict(payload["state_dict"])
+        self.logger.info(
+            f"Loaded checkpoint '{tag}' (cycle {payload.get('cycle')}, "
+            f"epoch {payload.get('epoch')}, score {payload.get('score')})"
+        )
+        return payload
+    
     def _init_results_path(self):
         date_folder = datetime.datetime.now().strftime("%m_%d")
         results_dir = os.path.join(self.config.results_dir, date_folder)
