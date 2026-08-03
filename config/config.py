@@ -109,6 +109,10 @@ class ActiveLearningConfig:
     cost_lambda: float = 0.001
 
     dynamic_query_size: bool = False
+    dyn_scale_min: float = 0.5
+    dyn_scale_max: float = 1.5
+    match_static_budget: bool = False
+    total_label_cap: Optional[int] = None
     # =====================
     # Logging / Repro
     # =====================

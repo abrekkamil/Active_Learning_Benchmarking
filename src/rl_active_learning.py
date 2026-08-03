@@ -431,8 +431,8 @@ class ActiveLearningSystemRL:
         # ==========================================================
         # Query size
         # ==========================================================
-        log_prob_budget = torch.tensor(0.0, device=self.device)
-        entropy_budget  = torch.tensor(0.0, device=self.device)
+#         log_prob_budget = torch.tensor(0.0, device=self.device)
+#         entropy_budget  = torch.tensor(0.0, device=self.device)
 
         if getattr(self.config, "dynamic_query_size", False):
 
@@ -444,7 +444,10 @@ class ActiveLearningSystemRL:
             hi = getattr(self.config, "dyn_scale_max", 1.5)
             scale = lo + (hi - lo) * torch.sigmoid(budget_logits)
             budget = int(scale.item() * base)
-
+            ratio = torch.sigmoid(budget_logits)
+            log_prob_budget = torch.log(ratio + 1e-12)
+            entropy_budget = -(ratio * torch.log(ratio + 1e-12) +
+                               (1 - ratio) * torch.log(1 - ratio + 1e-12))
             cap = getattr(self.config, "total_label_cap", None)
             if cap is not None:
                 remaining_cycles = max(1, self.config.al_cycles - self.cycle + 1)
@@ -456,6 +459,8 @@ class ActiveLearningSystemRL:
         else:
             qs = self.config.query_size
             budget = int(qs * self.total_samples) if qs <= 1 else int(qs)
+            log_prob_budget = torch.tensor(0.0, device=self.device)
+            entropy_budget  = torch.tensor(0.0, device=self.device)
 
         budget = max(0, min(budget, len(candidate_pool)))
         if budget == 0:
