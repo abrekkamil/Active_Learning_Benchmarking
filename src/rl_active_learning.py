@@ -156,7 +156,11 @@ class ActiveLearningSystemRL:
                 f"and {len(self.unlabeled_indices)} unlabeled samples"
             )
 
-
+        if getattr(self.config, "match_static_budget", False):
+            qs = self.config.query_size
+            step = int(qs * self.total_samples) if qs <= 1 else int(qs)
+            n0 = len(self.labeled_indices)
+            self.config.total_label_cap = n0 + step * self.config.al_cycles
         # --------------------
         # Tracking
         # --------------------
@@ -427,32 +431,36 @@ class ActiveLearningSystemRL:
         # ==========================================================
         # Query size
         # ==========================================================
+        log_prob_budget = torch.tensor(0.0, device=self.device)
+        entropy_budget  = torch.tensor(0.0, device=self.device)
+
         if getattr(self.config, "dynamic_query_size", False):
 
-            budget_ratio = torch.sigmoid(budget_logits)
-            budget_ratio = torch.clamp(budget_ratio, 0.01, 0.05)  # Limit to 1-5% of pool
+            qs = self.config.query_size
+            base = int(qs * self.total_samples) if qs <= 1 else int(qs)
+            base = max(1, base)
 
-            budget = int(budget_ratio.item() * len(self.unlabeled_indices))
-            budget = max(1, budget)
+            lo = getattr(self.config, "dyn_scale_min", 0.5)
+            hi = getattr(self.config, "dyn_scale_max", 1.5)
+            scale = lo + (hi - lo) * torch.sigmoid(budget_logits)
+            budget = int(scale.item() * base)
 
-            log_prob_budget = torch.log(budget_ratio + 1e-12)
+            cap = getattr(self.config, "total_label_cap", None)
+            if cap is not None:
+                remaining_cycles = max(1, self.config.al_cycles - self.cycle + 1)
+                allowance = cap - len(self.labeled_indices)
+                fair_share = max(1, allowance // remaining_cycles)
+                budget = min(budget, fair_share * 2, allowance)
 
-            p = budget_ratio
-            entropy_budget = -(p * torch.log(p + 1e-12) +
-                            (1 - p) * torch.log(1 - p + 1e-12))
 
         else:
+            qs = self.config.query_size
+            budget = int(qs * self.total_samples) if qs <= 1 else int(qs)
 
-            if self.config.query_size <= 1:
-#                 budget = int(self.config.query_size * len(candidate_pool))
-                budget = int(self.config.query_size * self.total_samples)
-            else:
-                budget = int(self.config.query_size)
-
-            budget = max(1, min(budget, len(candidate_pool)))
-
-            log_prob_budget = torch.tensor(0.0, device=self.device)
-            entropy_budget = torch.tensor(0.0, device=self.device)
+        budget = max(0, min(budget, len(candidate_pool)))
+        if budget == 0:
+            self.logger.info("Budget exhausted; no further acquisition.")
+            return [], None, None, None
 
         # ==========================================================
         # Image Sampling
@@ -508,6 +516,8 @@ class ActiveLearningSystemRL:
 
         self.history.setdefault("selected_train_count", []).append(n_train)
         self.history.setdefault("selected_pool_count", []).append(n_pool)
+        self.history.setdefault("cycle_budget", []).append(budget)
+
         return selected_indices, log_prob_sum, entropy, budget
     
 
@@ -723,7 +733,6 @@ class ActiveLearningSystemRL:
         self.history.setdefault("epoch_time", []).append(epoch_time)
         self.history.setdefault("train_loss", []).append(train_metrics["train_loss"])
         self.history.setdefault("labeled_count", []).append(len(self.labeled_indices))
-
 
         # ==========================================
         # Semantic segmentation
