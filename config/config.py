@@ -40,9 +40,21 @@ class ActiveLearningConfig:
     da_prefilter_uncertain: bool = True
     da_mmr_lambda: float = 0.45
     # =====================
+    # RL Reward
+    # =====================
+    reward_mode: str = "f1"          # "f1" | "damage"
+    reward_recall_w: float = 0.4
+    reward_eff_lambda: float = 0.5
+    reward_rare_lambda: float = 0.5
+    reward_scale: float = 10.0
+    reward_stage_alpha: float = 0.5
+    # =====================
     # Task / Model
     # =====================
     pool: bool = False
+    val_source: str = "train"
+    val_fraction: float = 0.2
+    val_seed: int = 12345
     # =====================
     # Task / Model
     # =====================

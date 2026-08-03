@@ -65,6 +65,7 @@ class ActiveLearningSystemRL:
         # --------------------
         self.dataset_train = load_dataset(config, split="train")
         self.dataset_val   = load_dataset(config, split="val")
+        self.dataset_test  = load_dataset(config, split="test")
         self.dataset_pool = None
         if config.pool:
             self.dataset_pool = load_dataset(config, split="pool")
@@ -161,6 +162,33 @@ class ActiveLearningSystemRL:
         # --------------------
         self.reward_baseline = 0.0
         self.baseline_momentum = 0.9
+
+        # reward_mode: "f1" = original marginal-F1 reward | "damage" = ours
+        self.reward_mode      = getattr(config, "reward_mode", "f1").strip().lower()
+        self.reward_eff_lambda  = getattr(config, "reward_eff_lambda", 0.5)
+        self.reward_rare_lambda = getattr(config, "reward_rare_lambda", 0.5)
+        self.reward_recall_w    = getattr(config, "reward_recall_w", 0.4)
+        self.reward_scale       = getattr(config, "reward_scale", 10.0)
+        self._stage_alpha       = getattr(config, "reward_stage_alpha", 0.5)
+        self._stage_gain_ema    = None
+        self.prev_damage_score  = None
+        self._pool_crack_mean   = 0.0
+        self._sel_crack_mean    = 0.0
+
+        valid_reward_modes = {"f1", "damage"}
+        if self.reward_mode not in valid_reward_modes:
+            raise ValueError(
+                f"Unknown reward_mode={self.reward_mode!r}. "
+                f"Expected one of {sorted(valid_reward_modes)}."
+            )
+        if self.reward_mode == "damage" and self.config.task != "segmentation":
+            raise ValueError(
+                "reward_mode='damage' currently supports semantic "
+                "segmentation only."
+            )
+        
+        self.logger.info(f"Reward mode: {self.reward_mode}")
+
         self.history = {}
 
         self.logger.info(
@@ -322,6 +350,7 @@ class ActiveLearningSystemRL:
                 if logits.shape[-2:] != images.shape[-2:]:
                     logits = F.interpolate(logits, size=images.shape[-2:], mode="bilinear", align_corners=False)
                 probs = F.softmax(logits, dim=1)
+                crack_frac = (probs.argmax(dim=1) == 1).float().mean(dim=[1, 2])  # (B,)
 
                 entropy = -(probs * torch.log(probs + 1e-8)).sum(dim=1).mean(dim=[1,2])
 
@@ -334,8 +363,9 @@ class ActiveLearningSystemRL:
                 [entropy, 1.0 - confidence, 1.0 - margin],
                 dim=1
             )
-
-            return torch.cat([feats, uncertainty], dim=1)
+            if self.config.task not in ("instance_segmentation", "multilabel_classification"):
+                return torch.cat([feats, uncertainty], dim=1), crack_frac
+            return torch.cat([feats, uncertainty], dim=1), torch.zeros(feats.shape[0], device=self.device)
     # ==========================================================
     # RL query step
     # ==========================================================
@@ -361,18 +391,15 @@ class ActiveLearningSystemRL:
             collate_fn=universal_collate
         )
 
-        states = []
-
+        states, crack_fracs = [], []
         with torch.no_grad():
-
             for images, _ in loader:
-
                 images = [_ensure_rgb(img) for img in images]
                 images = torch.stack(images).to(self.device)
-
-                states.append(self._compute_state(images))
-
+                st, cf = self._compute_state(images)
+                states.append(st); crack_fracs.append(cf)
         states = torch.cat(states, dim=0).detach()
+        crack_fracs = torch.cat(crack_fracs, dim=0).detach()
 
         # ==========================================================
         # Candidate Filtering
@@ -403,9 +430,9 @@ class ActiveLearningSystemRL:
         if getattr(self.config, "dynamic_query_size", False):
 
             budget_ratio = torch.sigmoid(budget_logits)
-            budget_ratio = torch.clamp(budget_ratio, 0.01, 0.15)  # Limit to 1-15% of pool
+            budget_ratio = torch.clamp(budget_ratio, 0.01, 0.05)  # Limit to 1-5% of pool
 
-            budget = int(budget_ratio.item() * len(candidate_pool))
+            budget = int(budget_ratio.item() * len(self.unlabeled_indices))
             budget = max(1, budget)
 
             log_prob_budget = torch.log(budget_ratio + 1e-12)
@@ -455,6 +482,9 @@ class ActiveLearningSystemRL:
         selected_indices = [
             candidate_pool[i] for i in selected_pos.tolist()
         ]
+        self._pool_crack_mean = float(crack_fracs.mean())
+        self._sel_crack_mean  = float(crack_fracs[candidate_idx][selected_pos].mean())
+        self.logger.info(f"CrackDensity | selected={self._sel_crack_mean:.4f} pool={self._pool_crack_mean:.4f}")
         selected_samples_info = []
 
         for source, idx in selected_indices:
@@ -479,10 +509,55 @@ class ActiveLearningSystemRL:
         self.history.setdefault("selected_train_count", []).append(n_train)
         self.history.setdefault("selected_pool_count", []).append(n_pool)
         return selected_indices, log_prob_sum, entropy, budget
+    
+
+    def get_damage_metric(self, metrics):
+        """Recall-weighted crack score. f1/recall are already crack-class (pos_label=1)."""
+        w = self.reward_recall_w
+        return w * metrics.get("recall", 0.0) + (1 - w) * metrics.get("f1", 0.0)
+
+    def compute_reward(self, eval_metrics, budget):
+        if self.reward_mode != "damage":
+            score = self.get_primary_metric(self.config.task, eval_metrics)
+            prev, self.prev_score = self.prev_score, score
+            if prev is None: return 0.0
+            return float(np.clip(score - prev, -0.1, 0.1))
+
+        score = self.get_damage_metric(eval_metrics)
+        prev, self.prev_damage_score = self.prev_damage_score, score
+        if prev is None: return 0.0
+        raw_gain = score - prev
+
+        if self._stage_gain_ema is None: self._stage_gain_ema = raw_gain
+        else: self._stage_gain_ema = ((1 - self._stage_alpha) * self._stage_gain_ema
+                                      + self._stage_alpha * raw_gain)
+        r_perf = raw_gain - self._stage_gain_ema
+
+        init_budget = max(1, int(self.config.initial_labeled * len(self.dataset_train))
+                          if self.config.initial_labeled <= 1 else int(self.config.initial_labeled))
+        r_eff  = raw_gain / (budget / init_budget + 1e-8)
+        r_rare = self._sel_crack_mean - self._pool_crack_mean   # >0 = denser than random
+
+        reward = r_perf + self.reward_eff_lambda * r_eff + self.reward_rare_lambda * r_rare
+        reward = float(np.clip(reward * self.reward_scale, -0.1, 0.1))
+        self.logger.info(f"RewardComponents | raw={raw_gain:.4f} ema={self._stage_gain_ema:.4f} "
+                         f"r_perf={r_perf:.4f} r_eff={r_eff:.4f} r_rare={r_rare:.4f} reward={reward:.4f}")
+        for k, v in [
+            ("reward_raw_gain", raw_gain),
+            ("reward_r_perf", r_perf),
+            ("reward_r_eff", r_eff),
+            ("reward_r_rare", r_rare),
+            ("reward_pool_crack_mean", self._pool_crack_mean),
+            ("reward_selected_crack_mean", self._sel_crack_mean),
+        ]:
+            self.history.setdefault(k, []).append(float(v))
+        return reward
+    
     # ==========================================================
     # One AL cycle
     # ==========================================================
     def run_cycle(self):
+        pool_size_before_query = len(self.unlabeled_indices)
         # Query
         self.policy_temp = max(
         self.config.policy_temp_end,
@@ -527,17 +602,22 @@ class ActiveLearningSystemRL:
                 self._save_ckpt("best", ep, current_score)
                 
                 
-        score = self.get_primary_metric(self.config.task, eval_metrics)
-        
-        if self.prev_score is None:
-            reward = 0.0
-        else:
-            reward = score - self.prev_score
-            reward = float(np.clip(reward, -0.1, 0.1))
-        self.prev_score = score 
-        # Cost penalty
+        reward = self.compute_reward(eval_metrics, budget)
+
+        cost_penalty = 0.0
         if getattr(self.config, "dynamic_query_size", False):
-            reward = reward - self.config.cost_lambda * (budget / len(self.unlabeled_indices))
+            cost_penalty = self.config.cost_lambda * (
+                budget / max(1, pool_size_before_query)
+            )
+            reward -= cost_penalty
+
+        self.history.setdefault(
+            "reward_cost_penalty", []
+        ).append(float(cost_penalty))
+
+        self.history.setdefault(
+            "reward_final", []
+        ).append(float(reward))
         # Policy update ONLY if a query actually happened
         advantage = torch.tensor(0.0, device=self.device)
         if log_prob_sum is not None:
@@ -594,6 +674,7 @@ class ActiveLearningSystemRL:
         self.cycle += 1
 
         self.prev_score = self.get_primary_metric(self.config.task, eval_metrics)
+        self.prev_damage_score = self.get_damage_metric(eval_metrics)
         for cycle in range(self.config.al_cycles):
             self.logger.info(f"\n=== Reinforcement AL Cycle {cycle + 1}/{self.config.al_cycles} ===")
             self.run_cycle()
@@ -604,6 +685,26 @@ class ActiveLearningSystemRL:
         system_time = str(datetime.datetime.now() - self.system_start_time)
         self.logger.info(f"Total system time: {system_time}")
         self.history["system_time"] = system_time
+        try:
+            self._load_ckpt("best")
+            self.logger.info("Loaded best-on-val checkpoint for final test evaluation.")
+        except Exception as e:
+            self.logger.info(f"No best checkpoint to load ({e}); "
+                             f"evaluating current model on test.")
+
+        test_metrics = self.main_model.evaluate(self.dataset_test)
+        self.history["final_test_metrics"] = test_metrics
+        for k, v in test_metrics.items():
+            if isinstance(v, (int, float)):
+                self.history.setdefault(f"final_test_{k}", []).append(float(v))
+        self.logger.info(
+            "FINAL TEST | F1 {:.4f} | dice {:.4f} | mIoU {:.4f}".format(
+                float(test_metrics.get("f1", 0.0)),
+                float(test_metrics.get("dice", 0.0)),
+                float(test_metrics.get("mean_iou", 0.0)),
+            )
+        )
+
         self.save_results()
         return self.history
 
@@ -757,7 +858,20 @@ class ActiveLearningSystemRL:
             path = os.path.join(self.run_ckpt_dir, f"{tag}.pth")
             torch.save(payload, path)
             return path
-
+    def _load_ckpt(self, tag):
+        """Load a state-dict checkpoint saved by _save_ckpt into self.main_model."""
+        path = os.path.join(self.run_ckpt_dir, f"{tag}.pth")
+        if not os.path.exists(path):
+            raise FileNotFoundError(f"No checkpoint at {path}")
+        net = getattr(self.main_model, "model", self.main_model)
+        payload = torch.load(path, map_location=self.device)
+        net.load_state_dict(payload["state_dict"])
+        self.logger.info(
+            f"Loaded checkpoint '{tag}' (cycle {payload.get('cycle')}, "
+            f"epoch {payload.get('epoch')}, score {payload.get('score')})"
+        )
+        return payload
+    
     def _init_results_path(self):
         date_folder = datetime.datetime.now().strftime("%m_%d")
         results_dir = os.path.join(self.config.results_dir, date_folder)
